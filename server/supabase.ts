@@ -245,6 +245,20 @@ function applyProductMaster(items: LiveOrderItem[], catalog: Map<string, Record<
   });
 }
 
+function mergeDuplicateItems(items: LiveOrderItem[]) {
+  const merged = new Map<string, LiveOrderItem>();
+  for (const item of items) {
+    const key = String(item.sku ?? item.label_display ?? item.th_name ?? item.display_for_packer ?? "").trim().toLowerCase();
+    if (!key) { merged.set(`row:${merged.size}`, item); continue; }
+    const existing = merged.get(key);
+    if (!existing) { merged.set(key, { ...item, quantity: item.quantity ?? item.qty ?? 1, qty: item.quantity ?? item.qty ?? 1 }); continue; }
+    const quantity = Number(existing.quantity ?? existing.qty ?? 1) + Number(item.quantity ?? item.qty ?? 1);
+    const expectedCod = (existing.expected_cod ?? 0) + (item.expected_cod ?? 0);
+    merged.set(key, { ...existing, quantity, qty: quantity, expected_cod: expectedCod || existing.expected_cod || item.expected_cod });
+  }
+  return Array.from(merged.values());
+}
+
 function parseItemArray(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) return value.filter(item => Boolean(item && typeof item === "object")) as Record<string, unknown>[];
   if (typeof value !== "string" || !value.trim()) return [];
@@ -275,8 +289,8 @@ function normalizeOrder(row: Record<string, unknown>, items: LiveOrderItem[]): L
     customer_name: customerNameFromRow(row),
     facebook_name: text(row.facebook_name),
     phone: firstText(row, "phone", "extracted_phone"),
-    full_address: firstText(row, "address_display_packer", "addressclean", "web_address_for_bill", "web_address_primary", "address_display_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "short_address", "parsedLocationOnly"),
-    address_display_packer: firstText(row, "address_display_packer", "addressclean", "web_address_for_bill", "address_display_full", "address_display_primary", "web_address_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "short_address"),
+    full_address: firstText(row, "address_for_bill", "final_address_for_bill", "address_display_packer", "addressclean", "web_address_for_bill", "web_address_primary", "address_display_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "short_address", "parsedLocationOnly"),
+    address_display_packer: firstText(row, "address_for_bill", "final_address_for_bill", "address_display_packer", "addressclean", "web_address_for_bill", "address_display_full", "address_display_primary", "web_address_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "short_address"),
     page_name: text(row.page_name),
     page_id: text(row.page_id),
     thread_id: text(row.thread_id),
@@ -343,7 +357,7 @@ export async function fetchLiveOrders(search?: string) {
   } catch (error) {
     console.warn("[SUPHABASS] product_master lookup skipped:", error instanceof Error ? error.message : String(error));
   }
-  const orders = rawOrders.map(row => normalizeOrder(row, applyProductMaster(itemLinesFromOrder(row), catalog))).sort(sortNewest);
+  const orders = rawOrders.map(row => normalizeOrder(row, mergeDuplicateItems(applyProductMaster(itemLinesFromOrder(row), catalog)))).sort(sortNewest);
   const query = search?.trim().toLowerCase();
   if (!query) return orders;
   if (/^(cod|เก็บเงินปลายทาง|ปลายทาง)$/i.test(query)) return orders.filter(order => order.cod_amount !== null || order.expected_cod !== null || /cod|เก็บเงินปลายทาง|ปลายทาง/i.test(`${order.source_text ?? ""} ${order.telegram_message ?? ""}`));
