@@ -61,6 +61,7 @@ async function startServer() {
       return res.sendStatus(500);
     }
   });
+  app.get("/api/health", (_req, res) => res.status(200).json({ ok: true, service: "suphabass-canonical-order-desk" }));
   // tRPC API
   app.use(
     "/api/trpc",
