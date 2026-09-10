@@ -195,11 +195,44 @@
   }
 }
 
+/* One codebase, two store skins: ST Store Gold-Black Theme */
+.store-orange input:focus, .store-orange textarea:focus, .store-orange select:focus { 
+  border-color: rgb(234 179 8 / .8) !important; 
+  box-shadow: 0 0 0 2px rgb(234 179 8 / .2), 0 0 20px rgb(251 191 36 / .25) !important; 
+}
 
-/* One codebase, two store skins. */
-.store-orange input:focus, .store-orange textarea:focus, .store-orange select:focus { border-color: rgb(249 115 22 / .75) !important; box-shadow: 0 0 0 2px rgb(249 115 22 / .18), 0 0 18px rgb(251 146 60 / .18) !important; }
-.store-orange .text-fuchsia-300, .store-orange .text-fuchsia-200, .store-orange .text-violet-200 { color: #fdba74 !important; }
-.store-orange .bg-fuchsia-500 { background-color: #f97316 !important; }
-.store-orange .border-fuchsia-500\/20, .store-orange .border-violet-500\/15, .store-orange .border-violet-500\/10 { border-color: rgb(249 115 22 / .24) !important; }
-.store-orange .from-fuchsia-600 { --tw-gradient-from: #ea580c var(--tw-gradient-from-position) !important; }
-.store-orange .to-violet-600 { --tw-gradient-to: #9a3412 var(--tw-gradient-to-position) !important; }
+/* แปลงสีฟิวเซีย/ม่วงเดิม ให้กลายเป็นสีทองพรีเมียม (Gold) ทั้งหมดสำหรับ ST Store */
+.store-orange .text-fuchsia-300, 
+.store-orange .text-fuchsia-200, 
+.store-orange .text-violet-200,
+.store-orange .text-amber-300 { 
+  color: #fde047 !important; /* เหลืองทองสว่างประกาย */
+}
+
+.store-orange .bg-fuchsia-500,
+.store-orange .bg-orange-500 { 
+  background-color: #eab308 !important; /* ปุ่มสีทองคำพรีเมียม ตรงตาม Ref */
+  color: #000000 !important; /* ตัวหนังสือบนปุ่มสีดำตัดกันชัดเจน */
+}
+
+.store-orange .bg-fuchsia-500:hover,
+.store-orange .bg-orange-500:hover { 
+  background-color: #ca8a04 !important; /* ทองเข้มขึ้นตอนเอาเมาส์ชี้ */
+}
+
+.store-orange .border-fuchsia-500\/20, 
+.store-orange .border-violet-500\/15, 
+.store-orange .border-violet-500\/10,
+.store-orange .border-amber-500\/50 { 
+  border-color: rgb(234 179 8 / .35) !important; /* ขอบเส้นสีทองเรืองแสงบางๆ */
+}
+
+.store-orange .from-fuchsia-600,
+.store-orange .from-orange-500 { 
+  --tw-gradient-from: #eab308 var(--tw-gradient-from-position) !important; /* ไล่สีจากทอง */
+}
+
+.store-orange .to-violet-600,
+.store-orange .to-amber-600 { 
+  --tw-gradient-to: #ca8a04 var(--tw-gradient-to-position) !important; /* ไปหาทองเข้ม/อำพัน */
+}
