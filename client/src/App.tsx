@@ -16,6 +16,8 @@ import OrderBuckets from "@/pages/OrderBuckets";
 import DailyChatSummary from "@/pages/DailyChatSummary";
 import ConnectSupabase from "@/pages/ConnectSupabase";
 import OrderHistory from "@/pages/OrderHistory";
+import CustomerHistory from "./pages/CustomerHistory";
+import TrackingReview from "./pages/TrackingReview";
 
 function Router() {
   return (
@@ -47,6 +49,12 @@ function Router() {
       </Route>
       <Route path="/order-history">
         <DashboardLayout><OrderHistory /></DashboardLayout>
+      </Route>
+      <Route path="/customer-history">
+        <DashboardLayout><CustomerHistory /></DashboardLayout>
+      </Route>
+      <Route path="/tracking-review">
+        <DashboardLayout><TrackingReview /></DashboardLayout>
       </Route>
       <Route path="/">
         <DashboardLayout><Home /></DashboardLayout>

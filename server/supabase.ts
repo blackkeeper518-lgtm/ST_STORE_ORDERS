@@ -83,6 +83,24 @@ function normalizePhone(value: unknown) { return String(value ?? "").replace(/\D
 function normalizeAddress(value: unknown) { return String(value ?? "").toLowerCase().replace(/ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.|แขวง|เขต/g, "").replace(/[^0-9ก-๙a-z]/gi, ""); }
 function numericCod(value: unknown) { const n = Number(String(value ?? "").replace(/[^0-9.]/g, "")); return Number.isFinite(n) ? n : null; }
 
+export async function fetchCustomerHistory(search?: string, limit = 200) {
+  const rows = await getRows<Record<string, unknown>>("vw_customer_history", "*", limit);
+  const q = search?.trim().toLowerCase();
+  return rows.filter(row => !q || JSON.stringify(row).toLowerCase().includes(q));
+}
+
+export async function fetchParcelMatchReview(status: "all" | "matched" | "review" | "unmatched" = "all", limit = 300) {
+  const { baseUrl, key } = config();
+  const url = new URL(`${baseUrl}/rest/v1/parcel_order_matches`);
+  url.searchParams.set("select", "*,parcels(tracking_number,phone_number,phone,address,cod_amount,cod,pickup_date)");
+  if (status !== "all") url.searchParams.set("match_status", `eq.${status}`);
+  url.searchParams.set("order", "created_at.desc");
+  url.searchParams.set("limit", String(limit));
+  const response = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+  if (!response.ok) throw new Error(`Supabase parcel_order_matches returned HTTP ${response.status}`);
+  return response.json() as Promise<Array<Record<string, unknown>>>;
+}
+
 export async function fetchParcelForOrder(order: LiveOrder): Promise<ParcelMatch | null> {
   const cacheKey = order.order_number;
   const cached = parcelCache.get(cacheKey);
