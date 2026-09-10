@@ -24,8 +24,10 @@ import {
   fetchDailyOrderHistory,
   fetchExternalChatMessages,
   fetchLiveOrders,
+  fetchLiveOrder,
   fetchLiveProductMappings,
   fetchLiveThreads,
+  fetchParcelForOrder,
   fetchOrdersForThread,
   fetchStockProducts,
   fetchStockWarnings,
@@ -79,6 +81,7 @@ export const appRouter = router({
     }),
     dailyOrderHistory: publicProcedure.input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), search: z.string().optional() })).query(({ input }) => fetchDailyOrderHistory(input.date, input.search)),
     forThread: publicProcedure.input(threadInput).query(({ input }) => fetchOrdersForThread(input.pageId, input.threadId)),
+    parcelForOrder: publicProcedure.input(z.object({ orderNumber: z.string().min(1) })).query(async ({ input }) => { const order = await fetchLiveOrder(input.orderNumber); return order ? fetchParcelForOrder(order) : null; }),
     chatEvidence: publicProcedure.input(threadInput).query(({ input }) => fetchConversationEvidence(input.pageId, input.threadId)),
     searchEvidence: publicProcedure.input(z.object({ q: z.string().optional(), pageId: z.string().optional(), conversationKey: z.string().optional(), limit: z.number().int().min(1).max(200).default(50) })).query(async ({ input }) => {
       const rows = await fetchExternalChatMessages(input.pageId, input.conversationKey, input.limit);

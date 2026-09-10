@@ -63,6 +63,64 @@ export type LiveOrder = {
   items: LiveOrderItem[];
 };
 
+
+export type ParcelMatch = {
+  id: string;
+  trackingNumber: string | null;
+  pickupDate: string | null;
+  consignee: string | null;
+  phone: string | null;
+  address: string | null;
+  codAmount: number | null;
+  matchMethod: string;
+  matchScore: number;
+  matchStatus: "matched" | "review" | "not_found";
+};
+
+const parcelCache = new Map<string, { expiresAt: number; value: ParcelMatch | null }>();
+
+function normalizePhone(value: unknown) { return String(value ?? "").replace(/\D/g, "").replace(/^66/, "0"); }
+function normalizeAddress(value: unknown) { return String(value ?? "").toLowerCase().replace(/ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.|แขวง|เขต/g, "").replace(/[^0-9ก-๙a-z]/gi, ""); }
+function numericCod(value: unknown) { const n = Number(String(value ?? "").replace(/[^0-9.]/g, "")); return Number.isFinite(n) ? n : null; }
+
+export async function fetchParcelForOrder(order: LiveOrder): Promise<ParcelMatch | null> {
+  const cacheKey = order.order_number;
+  const cached = parcelCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const { baseUrl, key } = config();
+  const url = new URL(`${baseUrl}/rest/v1/parcels`);
+  url.searchParams.set("select", "id,tracking_number,pickup_date,consignee,phone_number,phone,address,cod_amount,cod");
+  url.searchParams.set("order", "pickup_date.desc");
+  url.searchParams.set("limit", "5000");
+  const response = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+  if (!response.ok) throw new Error(`Supabase parcels returned HTTP ${response.status}`);
+  const rows = await response.json() as Array<Record<string, unknown>>;
+  const orderPhone = normalizePhone(order.phone);
+  const orderAddress = normalizeAddress(order.full_address);
+  const orderCod = order.cod_amount ?? order.expected_cod;
+  const candidates = rows.map(row => {
+    const phone = normalizePhone(row.phone_number ?? row.phone);
+    const address = normalizeAddress(row.address);
+    const cod = numericCod(row.cod_amount ?? row.cod);
+    let score = 0; const methods: string[] = [];
+    if (orderPhone && phone && orderPhone === phone) { score += 55; methods.push("phone"); }
+    if (orderCod !== null && cod !== null && Math.abs(orderCod - cod) < 0.01) { score += 20; methods.push("cod"); }
+    if (orderAddress && address) {
+      const tokens = orderAddress.match(/[0-9]+|[ก-๙a-z]{3,}/gi) ?? [];
+      const hits = tokens.filter(token => address.includes(token)).length;
+      if (tokens.length && hits / tokens.length >= 0.5) { score += 25; methods.push("address"); }
+      else if (tokens.length && hits > 0) { score += 10; methods.push("address_partial"); }
+    }
+    return { row, score, methods };
+  }).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  const value = best ? {
+    id: String(best.row.id), trackingNumber: text(best.row.tracking_number), pickupDate: text(best.row.pickup_date), consignee: text(best.row.consignee), phone: text(best.row.phone_number ?? best.row.phone), address: text(best.row.address), codAmount: numericCod(best.row.cod_amount ?? best.row.cod), matchMethod: best.methods.join(" + "), matchScore: best.score, matchStatus: best.score >= 75 ? "matched" as const : "review" as const,
+  } : null;
+  parcelCache.set(cacheKey, { expiresAt: Date.now() + 30_000, value });
+  return value;
+}
+
 export type LiveOrderStats = {
   total: number;
   mapped: number;

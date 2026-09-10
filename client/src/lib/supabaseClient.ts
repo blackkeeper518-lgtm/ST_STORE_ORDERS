@@ -1,8 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { storeConfig } from "./store-config";
 
-export const SUPHABASS_SUPABASE_URL_KEY = "suphabass:supabase-url";
-export const SUPHABASS_SUPABASE_ANON_KEY = "suphabass:supabase-anon-key";
-export const SUPHABASS_SUPABASE_TABLE_KEY = "suphabass:supabase-order-table";
+export const SUPHABASS_SUPABASE_URL_KEY = `${storeConfig.storagePrefix}:supabase-url`;
+export const SUPHABASS_SUPABASE_ANON_KEY = `${storeConfig.storagePrefix}:supabase-anon-key`;
+export const SUPHABASS_SUPABASE_TABLE_KEY = `${storeConfig.storagePrefix}:supabase-order-table`;
 
 export type SupabaseBrowserSettings = { url: string; anonKey: string; orderTable: string };
 

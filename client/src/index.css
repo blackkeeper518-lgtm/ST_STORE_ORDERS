@@ -194,3 +194,12 @@
     box-shadow: 0 0 0 2px rgb(168 85 247 / 0.18), 0 0 18px rgb(236 72 153 / 0.18);
   }
 }
+
+
+/* One codebase, two store skins. */
+.store-orange input:focus, .store-orange textarea:focus, .store-orange select:focus { border-color: rgb(249 115 22 / .75) !important; box-shadow: 0 0 0 2px rgb(249 115 22 / .18), 0 0 18px rgb(251 146 60 / .18) !important; }
+.store-orange .text-fuchsia-300, .store-orange .text-fuchsia-200, .store-orange .text-violet-200 { color: #fdba74 !important; }
+.store-orange .bg-fuchsia-500 { background-color: #f97316 !important; }
+.store-orange .border-fuchsia-500\/20, .store-orange .border-violet-500\/15, .store-orange .border-violet-500\/10 { border-color: rgb(249 115 22 / .24) !important; }
+.store-orange .from-fuchsia-600 { --tw-gradient-from: #ea580c var(--tw-gradient-from-position) !important; }
+.store-orange .to-violet-600 { --tw-gradient-to: #9a3412 var(--tw-gradient-to-position) !important; }
