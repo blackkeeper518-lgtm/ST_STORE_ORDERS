@@ -229,6 +229,22 @@ function normalizeItem(row: Record<string, unknown>): LiveOrderItem {
   };
 }
 
+function applyProductMaster(items: LiveOrderItem[], catalog: Map<string, Record<string, unknown>>) {
+  return items.map(item => {
+    const master = item.sku ? catalog.get(item.sku.trim().toLowerCase()) : undefined;
+    if (!master) return item;
+    const canonicalLabel = firstText(master, "display_for_packer", "label_display", "name_standard", "th_name");
+    return {
+      ...item,
+      display_for_packer: canonicalLabel ?? item.display_for_packer,
+      label_display: canonicalLabel ?? item.label_display,
+      th_name: firstText(master, "th_name", "name_standard") ?? item.th_name,
+      emoji: text(master.emoji) ?? item.emoji,
+      unit_price: number(master.unit_price) ?? item.unit_price,
+    };
+  });
+}
+
 function parseItemArray(value: unknown): Record<string, unknown>[] {
   if (Array.isArray(value)) return value.filter(item => Boolean(item && typeof item === "object")) as Record<string, unknown>[];
   if (typeof value !== "string" || !value.trim()) return [];
@@ -259,8 +275,8 @@ function normalizeOrder(row: Record<string, unknown>, items: LiveOrderItem[]): L
     customer_name: customerNameFromRow(row),
     facebook_name: text(row.facebook_name),
     phone: firstText(row, "phone", "extracted_phone"),
-    full_address: firstText(row, "web_address_for_bill", "web_address_primary", "address_display_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "address_display_packer", "addressclean", "short_address", "parsedLocationOnly"),
-    address_display_packer: firstText(row, "web_address_for_bill", "address_display_full", "address_display_primary", "web_address_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "address_display_packer", "addressclean", "short_address"),
+    full_address: firstText(row, "address_display_packer", "addressclean", "web_address_for_bill", "web_address_primary", "address_display_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "short_address", "parsedLocationOnly"),
+    address_display_packer: firstText(row, "address_display_packer", "addressclean", "web_address_for_bill", "address_display_full", "address_display_primary", "web_address_primary", "full_address", "address_display_fallback", "web_address_fallback", "web_address_short", "address_line_1", "short_address"),
     page_name: text(row.page_name),
     page_id: text(row.page_id),
     thread_id: text(row.thread_id),
@@ -320,7 +336,14 @@ export async function fetchLiveOrders(search?: string) {
       rawOrders = await getRows<Record<string, unknown>>(CENTRAL_ORDER_TABLE, orderSelect, 3000);
     } catch { rawOrders = await getRows<Record<string, unknown>>(CANONICAL_ORDER_TABLE, orderSelect, 3000); }
   }
-  const orders = rawOrders.map(row => normalizeOrder(row, itemLinesFromOrder(row))).sort(sortNewest);
+  let catalog = new Map<string, Record<string, unknown>>();
+  try {
+    const products = await getRows<Record<string, unknown>>("product_master", "sku,display_for_packer,label_display,name_standard,th_name,emoji,unit_price", 5000);
+    catalog = new Map(products.filter(row => String(row.sku ?? "").trim()).map(row => [String(row.sku).trim().toLowerCase(), row]));
+  } catch (error) {
+    console.warn("[SUPHABASS] product_master lookup skipped:", error instanceof Error ? error.message : String(error));
+  }
+  const orders = rawOrders.map(row => normalizeOrder(row, applyProductMaster(itemLinesFromOrder(row), catalog))).sort(sortNewest);
   const query = search?.trim().toLowerCase();
   if (!query) return orders;
   return orders.filter(order => JSON.stringify(order).toLowerCase().includes(query));
