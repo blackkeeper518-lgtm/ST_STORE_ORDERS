@@ -346,6 +346,7 @@ export async function fetchLiveOrders(search?: string) {
   const orders = rawOrders.map(row => normalizeOrder(row, applyProductMaster(itemLinesFromOrder(row), catalog))).sort(sortNewest);
   const query = search?.trim().toLowerCase();
   if (!query) return orders;
+  if (/^(cod|เก็บเงินปลายทาง|ปลายทาง)$/i.test(query)) return orders.filter(order => order.cod_amount !== null || order.expected_cod !== null || /cod|เก็บเงินปลายทาง|ปลายทาง/i.test(`${order.source_text ?? ""} ${order.telegram_message ?? ""}`));
   return orders.filter(order => JSON.stringify(order).toLowerCase().includes(query));
 }
 
@@ -514,21 +515,18 @@ function jsonText(value: unknown) {
 export async function fetchExternalChatMessages(pageId?: string, threadId?: string, limit = 2000): Promise<ExternalChatMessage[]> {
   const { baseUrl, key } = config();
   async function readTable(table: string) {
-    const select = table === "chat_customer_messages"
-      ? "id,source_message_id,page_id,page_name,conversation_key,customer_id,customer_name,message_text,attachments_json,occurred_at,synced_at"
-      : "id,source_message_id,page_id,page_name,conversation_key,page_sender_id,page_sender_name,message_text,attachments_json,occurred_at,synced_at";
-    const params = new URLSearchParams({ select, order: "occurred_at.desc", limit: String(limit) });
+    // These projections have changed over time. Read the row as-is and normalize
+    // conversation_id/thread_id, speaker/speaker_type, time, and attachment fields below.
+    const params = new URLSearchParams({ select: "*", order: "created_at.desc", limit: String(limit) });
     if (pageId) params.set("page_id", `eq.${pageId}`);
-    if (threadId) params.set("conversation_key", `eq.${threadId}`);
     let response = await fetch(`${baseUrl}/rest/v1/${table}?${params}`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
     if (!response.ok) {
       // Keep the Chat Hub usable if a deployment has an older table shape.
       const fallback = new URL(`${baseUrl}/rest/v1/${table}`);
       fallback.searchParams.set("select", "*");
-      fallback.searchParams.set("order", "occurred_at.desc");
+      fallback.searchParams.set("order", "time.desc");
       fallback.searchParams.set("limit", String(limit));
       if (pageId) fallback.searchParams.set("page_id", `eq.${pageId}`);
-      if (threadId) fallback.searchParams.set("conversation_key", `eq.${threadId}`);
       response = await fetch(fallback, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
     }
     if (!response.ok) throw new Error(`Supabase ${table} returned HTTP ${response.status}`);
@@ -539,16 +537,30 @@ export async function fetchExternalChatMessages(pageId?: string, threadId?: stri
     const customers = customersResult.status === "fulfilled" ? customersResult.value : [];
     const pages = pagesResult.status === "fulfilled" ? pagesResult.value : [];
     if (customersResult.status === "rejected" && pagesResult.status === "rejected") throw customersResult.reason;
-    const pageNames = new Map(pages.map(row => [String(row.page_id ?? ""), text(row.page_name)]));
+    const pageNames = new Map([...customers, ...pages].map(row => [String(row.page_id ?? ""), text(row.page_name)]));
+    const normalizeSenderType = (row: Record<string, unknown>, fallback: "customer" | "page") => {
+      const value = String(row.speaker_type ?? row.speaker ?? row.sender_type ?? "").toLowerCase();
+      return value === "page" || value === "admin" ? "page" as const : value === "customer" ? "customer" as const : fallback;
+    };
+    const normalizeChatRow = (row: Record<string, unknown>, fallback: "customer" | "page") => {
+      const senderType = normalizeSenderType(row, fallback);
+      const threadId = row.conversation_key ?? row.conversation_id ?? row.thread_id;
+      const providerMessageId = row.source_message_id ?? row.message_id ?? row.provider_message_id;
+      const textValue = row.message_text ?? row.message_raw ?? row.sniper_x_text_clean;
+      const attachments = row.attachments_json ?? row.attachments_raw ?? row.attachment_urls ?? (row.attachment_url ? [{ type: row.attachment_type ?? "file", url: row.attachment_url }] : undefined);
+      return { ...row, senderId: senderType === "customer" ? row.customer_id ?? row.sender_id : row.page_sender_id ?? row.sender_id ?? row.page_id, senderName: senderType === "customer" ? row.customer_name ?? row.sender_name : row.page_sender_name ?? row.sender_name ?? row.page_name, customerName: row.customer_name, senderType, side: senderType === "customer" ? "left" as const : "right" as const, direction: senderType === "customer" ? "inbound" as const : "outbound" as const, normalizedThreadId: threadId, normalizedProviderMessageId: providerMessageId, normalizedText: textValue, normalizedAttachments: attachments, normalizedOccurredAt: row.occurred_at ?? row.time ?? row.created_at ?? row.fetched_at };
+    };
     const rows: Array<Record<string, unknown> & { senderId: unknown; senderName: unknown; senderType: "customer" | "page"; side: "left" | "right"; direction: "inbound" | "outbound" }> = [
-      ...customers.map(row => ({ ...row, page_name: pageNames.get(String(row.page_id ?? "")) ?? row.page_name, senderId: row.customer_id, senderName: row.customer_name, customerName: row.customer_name, senderType: "customer" as const, side: "left" as const, direction: "inbound" as const })),
-      ...pages.map(row => ({ ...row, senderId: row.page_sender_id ?? row.page_id, senderName: row.page_sender_name, customerName: null, senderType: "page" as const, side: "right" as const, direction: "outbound" as const })),
+      ...customers.map(row => ({ ...normalizeChatRow(row, "customer"), page_name: pageNames.get(String(row.page_id ?? "")) ?? row.page_name })),
+      ...pages.map(row => normalizeChatRow(row, "page")),
     ];
-    return rows.map((row, index) => ({
-      id: Number(row.id ?? index + 1), providerMessageId: text(row.source_message_id), pageId: String(row.page_id ?? ""), pageName: text(row.page_name),
-      threadId: String(row.conversation_key ?? row.conversation_id ?? row.thread_id ?? ""), senderId: String(row.senderId ?? ""), senderName: text(row.senderName), customerName: text(row.customerName), senderType: row.senderType, side: row.side, direction: row.direction,
-      text: text(row.message_text), attachmentsJson: jsonText(row.attachments_json), occurredAt: text(row.occurred_at), createdAt: text(row.synced_at),
-    })).sort((a, b) => (Date.parse(String(b.occurredAt ?? "")) || 0) - (Date.parse(String(a.occurredAt ?? "")) || 0));
+    const deduped = new Map<string, (typeof rows)[number]>();
+    rows.forEach(row => { const key = String(row.normalizedProviderMessageId ?? row.dedupe_key ?? `${row.page_id}:${row.normalizedThreadId}:${row.normalizedOccurredAt}:${row.normalizedText}`); if (!deduped.has(key)) deduped.set(key, row); });
+    return Array.from(deduped.values()).map((row, index) => ({
+      id: Number(row.id ?? index + 1), providerMessageId: text(row.normalizedProviderMessageId), pageId: String(row.page_id ?? ""), pageName: text(row.page_name),
+      threadId: String(row.normalizedThreadId ?? ""), senderId: String(row.senderId ?? ""), senderName: text(row.senderName), customerName: text(row.customerName), senderType: row.senderType, side: row.side, direction: row.direction,
+      text: text(row.normalizedText), attachmentsJson: jsonText(row.normalizedAttachments), occurredAt: text(row.normalizedOccurredAt), createdAt: text(row.created_at ?? row.synced_at ?? row.fetched_at),
+    })).filter(row => row.pageId && row.threadId && (!threadId || row.threadId === threadId)).sort((a, b) => (Date.parse(String(b.occurredAt ?? "")) || 0) - (Date.parse(String(a.occurredAt ?? "")) || 0));
   } catch (error) {
     if (/404|42P01|relation|does not exist/i.test(String(error))) return [];
     throw error;
