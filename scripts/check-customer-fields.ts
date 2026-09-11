@@ -12,7 +12,7 @@ function filled(values: Record<string, unknown>[], key: string) {
   return values.filter(row => row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== "").length;
 }
 
-for (const table of ["canonical_orders", "canonical_order_items"]) {
+for (const table of ["bb_order", "bb_order_items_fix"]) {
   const values = await rows(table);
   console.log(JSON.stringify({ table, rows: values.length, customer_name: filled(values, "customer_name"), facebook_name: filled(values, "facebook_name"), phone: filled(values, "phone"), full_address: filled(values, "full_address"), addressclean: filled(values, "addressclean"), page_name: filled(values, "page_name"), thread_id: filled(values, "thread_id"), threadId: filled(values, "threadId"), order_number: filled(values, "order_number"), upsert_key: filled(values, "upsert_key") }));
 }

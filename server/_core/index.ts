@@ -1,4 +1,10 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+
+// Vercel injects secrets into process.env directly. For local/v0 runs, load
+// the conventional files first; dotenv never overwrites an existing env var.
+dotenv.config({ path: ".env.development.local" });
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -61,7 +67,6 @@ async function startServer() {
       return res.sendStatus(500);
     }
   });
-  app.get("/api/health", (_req, res) => res.status(200).json({ ok: true, service: "suphabass-canonical-order-desk" }));
   // tRPC API
   app.use(
     "/api/trpc",

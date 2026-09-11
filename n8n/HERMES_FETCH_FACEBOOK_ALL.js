@@ -19,7 +19,7 @@ const output = [];
 for (const item of $input.all()) {
   const page = item.json ?? {};
   const pageId = String(page.page_id ?? page.pageId ?? "");
-  const token = String(page.access_token ?? page.access_Token ?? page.page_access_token ?? page.pageAccessToken ?? page.token ?? "");
+  const token = String(page.access_token ?? page.page_access_token ?? page.pageAccessToken ?? page.token ?? "");
   const status = String(page.system_status ?? page.status ?? "OFF").toUpperCase();
 
   if (!pageId || status !== "ON" || !token) continue;

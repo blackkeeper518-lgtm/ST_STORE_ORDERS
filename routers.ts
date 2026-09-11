@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
-import { supabaseGet, supabasePost } from "./_core/env";
+import { supabaseGet, supabasePost } from "./supabase";
 
 type Row = Record<string, any>;
 const threadInput = z.object({ pageId: z.string().min(1), threadId: z.string().min(1) });
@@ -36,13 +36,13 @@ function orderWithPayload(row: Row): Row {
     items_count: Number(row.items_count ?? items.length),
     total_quantity: Number(row.total_quantity ?? items.reduce((sum, item) => sum + Number(item.quantity ?? item.qty ?? 1), 0)),
     payload: row.raw_payload ?? row.payload ?? row.telegram_body ?? null,
-    data_source: "canonical_orders",
+    data_source: "central_order_master",
   };
 }
 
 async function chatRows(path: string, direction: "inbound" | "outbound", speaker: "customer" | "page"): Promise<Row[]> {
   const rows = await supabaseGet<Row[]>(path);
-  return rows.map((row) => ({ ...row, direction, speaker_type: speaker }));
+  return rows.map((row) => ({ ...row, direction, speaker_type: speaker, text: row.message_text ?? row.message_body ?? row.text ?? null, attachmentsJson: typeof row.attachments_json === "string" ? row.attachments_json : row.attachments_json ? JSON.stringify(row.attachments_json) : null, occurredAt: row.occurred_at ?? row.source_created_at ?? row.created_at ?? null, senderName: row.customer_name ?? row.page_sender_name ?? row.sender_name ?? null, senderType: speaker }));
 }
 
 async function combinedMessages(pageId: string, threadId: string): Promise<Row[]> {
@@ -60,11 +60,11 @@ export const appRouter = router({
 
   orders: router({
     threads: publicProcedure.query(async () => {
-      // Build the thread list only from the two existing chat rooms and canonical_orders.
+      // Build the thread list only from the two existing chat rooms and central_order_master.
       const [customers, pages, orders] = await Promise.all([
         supabaseGet<Row[]>("chat_customer_messages?select=*&order=occurred_at.desc&limit=3000"),
         supabaseGet<Row[]>("chat_page_messages?select=*&order=occurred_at.desc&limit=3000"),
-        supabaseGet<Row[]>("canonical_orders?select=*&order=created_at.desc&limit=3000"),
+        supabaseGet<Row[]>("central_order_master?select=*&order=created_at.desc&limit=3000"),
       ]);
       const map = new Map<string, Row>();
       const add = (row: Row, kind: "customer" | "page" | "order") => {
@@ -93,16 +93,16 @@ export const appRouter = router({
         const q = encodeURIComponent(input.search.trim());
         params.push(`or=(order_number.ilike.*${q}*,customer_name.ilike.*${q}*,phone.ilike.*${q}*)`);
       }
-      const rows = await supabaseGet<Row[]>(`canonical_orders?${params.join("&")}`);
+      const rows = await supabaseGet<Row[]>(`central_order_master?${params.join("&")}`);
       const orders = rows.map(orderWithPayload);
       const mapped = orders.filter((row) => row.items.length > 0).length;
       return { orders, stats: { total: orders.length, mapped, review: orders.length - mapped, codCheck: orders.filter((row) => !row.cod_amount && !row.expected_cod).length, pages: new Set(orders.map((row) => row.page_id).filter(Boolean)).size, sent: orders.filter((row) => text(row.telegram_status).toUpperCase() === "SENT").length } };
     }),
 
     dailyOrderHistory: publicProcedure.input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), search: z.string().optional() })).query(async ({ input }) => {
-      // Read the existing canonical_orders table directly. The date is compared in
+      // Read the existing central_order_master table directly. The date is compared in
       // Bangkok time so the UI's date picker matches the shop's business day.
-      const rows = await supabaseGet<Row[]>("canonical_orders?select=*&order=created_at.desc&limit=3000");
+      const rows = await supabaseGet<Row[]>("central_order_master?select=*&order=created_at.desc&limit=3000");
       const toBangkokDate = (value: unknown) => {
         const raw = text(value);
         if (!raw) return "";
@@ -125,10 +125,10 @@ export const appRouter = router({
       const thread = encodeURIComponent(input.threadId);
       let rows: Row[] = [];
       try {
-        rows = await supabaseGet<Row[]>(`canonical_orders?page_id=eq.${page}&thread_id=eq.${thread}&select=*&order=created_at.desc`);
+        rows = await supabaseGet<Row[]>(`central_order_master?page_id=eq.${page}&thread_id=eq.${thread}&select=*&order=created_at.desc`);
       } catch {
-        // Some older canonical_orders versions used conversation_key instead of thread_id.
-        rows = await supabaseGet<Row[]>(`canonical_orders?page_id=eq.${page}&conversation_key=eq.${thread}&select=*&order=created_at.desc`);
+        // Some older central_order_master versions used conversation_key instead of thread_id.
+        rows = await supabaseGet<Row[]>(`central_order_master?page_id=eq.${page}&conversation_key=eq.${thread}&select=*&order=created_at.desc`);
       }
       return rows.map(orderWithPayload);
     }),
@@ -153,9 +153,9 @@ export const appRouter = router({
 
   chat: router({
     messages: publicProcedure.input(threadInput).query(({ input }) => combinedMessages(input.pageId, input.threadId)),
-    sendReply: publicProcedure.input(z.object({ pageId: z.string(), threadId: z.string(), recipientId: z.string(), text: z.string().optional(), imageUrl: z.string().optional(), stickerId: z.string().optional() })).mutation(() => ({ ok: false, status: "not_configured", message: "Connect Meta send API before enabling outbound replies" })),
+    sendReply: publicProcedure.input(z.object({ pageId: z.string(), threadId: z.string(), recipientId: z.string(), text: z.string().optional(), imageUrl: z.string().optional(), stickerId: z.string().optional() })).mutation(() => { throw new Error("Meta send API is not configured; message was not sent"); }),
     simulateSend: publicProcedure.input(z.object({ pageId: z.string(), threadId: z.string(), recipientId: z.string(), kind: z.enum(["text", "image"]), text: z.string().optional(), imageUrl: z.string().optional() })).mutation(({ input }) => ({ dryRun: true, payload: input })),
-    uploadImage: publicProcedure.input(z.object({ fileName: z.string(), contentType: z.string(), base64: z.string() })).mutation(() => ({ url: "", status: "not_configured" })),
+    uploadImage: publicProcedure.input(z.object({ fileName: z.string(), contentType: z.string(), base64: z.string() })).mutation(() => { throw new Error("Image upload is not configured; image was not uploaded"); }),
     metaErrors: publicProcedure.query(() => []),
   }),
 

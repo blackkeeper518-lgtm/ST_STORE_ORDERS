@@ -19,6 +19,6 @@ Do not send these order-level fields to Product Master:
 - `telegram_message`, `telegram_copy_text`, `packer_copy_text`;
 - `telegram_chat_id` or `telegram_body`.
 
-Those fields belong to the order/output branch. If a Telegram or packer message is generated, keep it on the `canonical_orders`/`canonical_order_items` branch or a dedicated delivery-log table. If the same workflow needs both shapes, use separate Code nodes and separate HTTP Request nodes; never pass the full order object directly into Product Master.
+Those fields belong to the order/output branch. If a Telegram or packer message is generated, keep it on the `bb_order`/`bb_order_items_fix` branch or a dedicated delivery-log table. If the same workflow needs both shapes, use separate Code nodes and separate HTTP Request nodes; never pass the full order object directly into Product Master.
 
 The two warning nodes intentionally return `[]` when there is no warning, so configure downstream n8n branches to tolerate empty output or enable Always Output Data only where the branch requires it.

@@ -13,12 +13,6 @@ const MASTERCONFIG = [
   { page_id: "1064404466767377", page_name: "เจ๊บี 🅱🅱" },
   { page_id: "1235719106287717", page_name: "🛒ร้าน:เจ๊บี" },
   { page_id: "1032290633303246", page_name: "💬ร้าน:เจ๊ B" },
-  { page_id: "148670205004124", page_name: "🔥สิงโตสโตร์" },
-  { page_id: "1021039111094473", page_name: "🧸SINGTO STORE" },
-  { page_id: "144448588753724", page_name: "🍊สิงโตสโตร์" },
-  { page_id: "1123283834192813", page_name: "🏀สิงโต-สโตร์" },
-  { page_id: "111653921912793", page_name: "🛕ST singto" },
-  { page_id: "1188184524374748", page_name: "🤠ร้าน:ลุงสิงโต" },
 ];
 const PAGE_MAP = new Map(MASTERCONFIG.map(page => [String(page.page_id), page.page_name]));
 
@@ -30,11 +24,7 @@ function getThreads(value) {
 }
 
 for (const item of $input.all()) {
-  const inputPageId = String(item.json?.page_id ?? item.json?.pageId ?? item.json?.Page_ID ?? item.json?.page?.id ?? "");
-  const inputPageName = String(item.json?.page_name ?? item.json?.pageName ?? item.json?.Page_Name ?? item.json?.page?.name ?? "");
-  if (inputPageId && !PAGE_MAP.has(inputPageId)) PAGE_MAP.set(inputPageId, inputPageName || inputPageId);
-  const source = item.json?.facebook_response ?? item.json?.response ?? item.json;
-  const threads = getThreads(source);
+  const threads = getThreads(item.json);
 
   for (const thread of threads) {
     if (!thread) continue;
@@ -49,27 +39,14 @@ for (const item of $input.all()) {
       const text = String(message.message ?? "").trim();
       if (!text) continue;
 
-      let pageId = inputPageId || String(thread.page_id ?? thread.pageId ?? thread.page?.id ?? "");
-      let pageName = inputPageName || String(thread.page_name ?? thread.pageName ?? thread.page?.name ?? "");
+      let pageId = "";
+      let pageName = "";
       for (const participant of participants) {
         const participantId = String(participant?.id ?? "");
         if (PAGE_MAP.has(participantId)) {
           pageId = participantId;
           pageName = PAGE_MAP.get(participantId) ?? "";
           break;
-        }
-      }
-
-      // Facebook payloads may carry the page on the thread/item but not in
-      // the static BB map. Preserve that page instead of dropping the room.
-      if (!pageId) {
-        const pageParticipant = participants.find(participant =>
-          participant?.type === "page" || participant?.is_page === true || participant?.role === "page"
-        );
-        if (pageParticipant) {
-          pageId = String(pageParticipant.id ?? "");
-          pageName = String(pageParticipant.name ?? pageId);
-          PAGE_MAP.set(pageId, pageName);
         }
       }
 
@@ -82,8 +59,6 @@ for (const item of $input.all()) {
         json: {
           Page_ID: pageId,
           Page_Name: pageName,
-          page_id: pageId,
-          page_name: pageName,
           conversation_id: conversationId,
           customer_name: customer?.name ?? message.from?.name ?? "",
           customer_id: customer?.id ?? "",

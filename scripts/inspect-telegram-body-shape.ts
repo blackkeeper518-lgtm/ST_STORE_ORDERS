@@ -1,7 +1,7 @@
 const baseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!baseUrl || !key) throw new Error("Supabase secrets are not configured");
-for (const table of ["canonical_orders", "canonical_order_items"]) {
+for (const table of ["bb_order", "bb_order_items_fix"]) {
   const url = new URL(`${baseUrl}/rest/v1/${table}`);
   url.searchParams.set("select", "id,telegram_body,telegram_message,telegram_copy_text,clean_text,single_cleaned_block,debug_block,debug_prod,parsed_product_raw,alias_text");
   url.searchParams.set("limit", "3");

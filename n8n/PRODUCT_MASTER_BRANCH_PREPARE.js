@@ -1,6 +1,6 @@
 // n8n Code node: 🌿 PRODUCT_MASTER_BRANCH_PREPARE
 // Run Once for All Items
-// Place on a side branch after the front-house parser, never before canonical_orders.
+// Place on a side branch after the front-house parser, never before bb_order.
 // Empty/unmapped product text returns [] so the order branch still receives every order.
 
 const output = [];

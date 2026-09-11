@@ -13,5 +13,5 @@ async function inspect(table: string) {
   console.log(JSON.stringify({ table, rowCountReturned: rows.length, fields }));
 }
 
-await inspect("canonical_orders");
-await inspect("canonical_order_items");
+await inspect("bb_order");
+await inspect("bb_order_items_fix");

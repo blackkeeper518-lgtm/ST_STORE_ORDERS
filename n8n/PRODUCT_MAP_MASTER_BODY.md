@@ -48,7 +48,7 @@ Use a separate branch after the parser:
 
 ```text
 front-house parser
-  ├─> order payload -> canonical_orders / canonical_order_items (required path)
+  ├─> order payload -> bb_order / bb_order_items_fix (required path)
   └─> IF product text exists -> product payload -> product_map_master (best effort)
                                       └─> warning if missing/ambiguous
 ```

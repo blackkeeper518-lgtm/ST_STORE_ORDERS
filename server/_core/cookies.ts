@@ -1,5 +1,3 @@
-import type { CookieOptions, Request } from "express";
-
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function isIpAddress(host: string) {
@@ -8,7 +6,7 @@ function isIpAddress(host: string) {
   return host.includes(":");
 }
 
-function isSecureRequest(req: Request) {
+function isSecureRequest(req: any) {
   if (req.protocol === "https") return true;
 
   const forwardedProto = req.headers["x-forwarded-proto"];
@@ -18,12 +16,12 @@ function isSecureRequest(req: Request) {
     ? forwardedProto
     : forwardedProto.split(",");
 
-  return protoList.some(proto => proto.trim().toLowerCase() === "https");
+  return protoList.some((proto: string) => proto.trim().toLowerCase() === "https");
 }
 
 export function getSessionCookieOptions(
-  req: Request
-): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
+  req: any
+): { domain?: string; httpOnly: boolean; path: string; sameSite: "none"; secure: boolean } {
   // const hostname = req.hostname;
   // const shouldSetDomain =
   //   hostname &&
@@ -40,9 +38,10 @@ export function getSessionCookieOptions(
   //       : undefined;
 
   return {
+    domain: undefined,
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    sameSite: "none" as const,
     secure: isSecureRequest(req),
   };
 }
