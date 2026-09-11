@@ -1,5 +1,5 @@
-// n8n Code node: CENTRAL_ORDER_MASTER_CANONICAL_PAYLOAD
-// Mode: Run Once for All Items. Place before Supabase upsert to central_order_master.
+// n8n Code node: BB_ORDERS_CANONICAL_PAYLOAD
+// Mode: Run Once for All Items. Place before Supabase upsert to bb_orders.
 // หลักการ: ไม่ปล่อย items_json เป็น [] ถ้ายังมีสินค้าอยู่ใน payload สำรอง
 const out = [];
 function asNumber(value, fallback = 1) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }

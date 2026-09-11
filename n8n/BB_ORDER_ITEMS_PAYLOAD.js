@@ -1,5 +1,5 @@
 // n8n Code node: BB_ORDER_ITEMS_PAYLOAD
-// Run after CENTRAL_ORDER_MASTER_CANONICAL_PAYLOAD and before the Supabase bb_order_items upsert.
+// Run after BB_ORDERS_CANONICAL_PAYLOAD and before the Supabase bb_order_items upsert.
 // It emits one item per product line, so no JSON column is required.
 
 function first(...values) {

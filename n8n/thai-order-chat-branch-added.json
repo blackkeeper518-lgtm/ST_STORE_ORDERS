@@ -987,7 +987,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYnlsb2F3Y2xibWVxbHNqbWxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODI2MTc4NywiZXhwIjoyMTAzODM3Nzg3fQ.vB7BCY5PeRmM04NwcYTJIUrvP4FcmcKfY_LEfqwsN-s"
             },
             {
               "name": "Prefer",
@@ -1001,7 +1001,7 @@
         "options": {}
       },
       "id": "ab4f8685-2e67-435d-8b17-16b418ade88c",
-      "name": "👑 central_order_master",
+      "name": "👑 bb_orders",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
@@ -1075,7 +1075,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYnlsb2F3Y2xibWVxbHNqbWxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODI2MTc4NywiZXhwIjoyMTAzODM3Nzg3fQ.vB7BCY5PeRmM04NwcYTJIUrvP4FcmcKfY_LEfqwsN-s"
             },
             {
               "name": "Prefer",
@@ -1089,7 +1089,7 @@
         "options": {}
       },
       "id": "41bd669b-1ca9-4983-bd0a-1117771b088c",
-      "name": "👑 central_order_master2",
+      "name": "👑 bb_orders2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
@@ -1150,7 +1150,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}"
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpYnlsb2F3Y2xibWVxbHNqbWxkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODI2MTc4NywiZXhwIjoyMTAzODM3Nzg3fQ.vB7BCY5PeRmM04NwcYTJIUrvP4FcmcKfY_LEfqwsN-s"
             },
             {
               "name": "Prefer",
@@ -1164,7 +1164,7 @@
         "options": {}
       },
       "id": "5785d58b-eea1-4cb0-bdb2-1e0fe63f6903",
-      "name": "👑 central_order_master3",
+      "name": "👑 bb_orders3",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
@@ -1242,7 +1242,7 @@
       "main": [
         [
           {
-            "node": "👑 central_order_master2",
+            "node": "👑 bb_orders2",
             "type": "main",
             "index": 0
           }
@@ -1254,7 +1254,7 @@
         []
       ]
     },
-    "👑 central_order_master": {
+    "👑 bb_orders": {
       "main": [
         [
           {
@@ -1269,7 +1269,7 @@
       "main": [
         [
           {
-            "node": "👑 central_order_master",
+            "node": "👑 bb_orders",
             "type": "main",
             "index": 0
           },
@@ -1303,7 +1303,7 @@
         ]
       ]
     },
-    "👑 central_order_master2": {
+    "👑 bb_orders2": {
       "main": [
         [
           {
@@ -1329,7 +1329,7 @@
       "main": [
         [
           {
-            "node": "👑 central_order_master3",
+            "node": "👑 bb_orders3",
             "type": "main",
             "index": 0
           }

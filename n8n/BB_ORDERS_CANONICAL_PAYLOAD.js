@@ -1,6 +1,6 @@
-// n8n Code node: 🧱 CENTRAL_ORDER_MASTER_CANONICAL_PAYLOAD
+// n8n Code node: 🧱 BB_ORDERS_CANONICAL_PAYLOAD
 // Mode: Run Once for All Items
-// Place immediately before the Supabase central_order_master Upsert node.
+// Place immediately before the Supabase bb_orders Upsert node.
 // This keeps every order in one canonical row and stores 2-3+ products in items_json.
 
 const out = [];
@@ -82,5 +82,5 @@ for (const item of $input.all()) {
 return out;
 
 // Supabase HTTP Request body: ={{$json}}
-// URL: /rest/v1/central_order_master?on_conflict=upsert_key
+// URL: /rest/v1/bb_orders?on_conflict=upsert_key
 // Prefer: resolution=merge-duplicates,return=minimal

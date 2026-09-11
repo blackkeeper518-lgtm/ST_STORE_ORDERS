@@ -36,7 +36,7 @@ function orderWithPayload(row: Row): Row {
     items_count: Number(row.items_count ?? items.length),
     total_quantity: Number(row.total_quantity ?? items.reduce((sum, item) => sum + Number(item.quantity ?? item.qty ?? 1), 0)),
     payload: row.raw_payload ?? row.payload ?? row.telegram_body ?? null,
-    data_source: "central_order_master",
+    data_source: "bb_orders",
   };
 }
 
@@ -60,11 +60,11 @@ export const appRouter = router({
 
   orders: router({
     threads: publicProcedure.query(async () => {
-      // Build the thread list only from the two existing chat rooms and central_order_master.
+      // Build the thread list only from the two existing chat rooms and bb_orders.
       const [customers, pages, orders] = await Promise.all([
         supabaseGet<Row[]>("chat_customer_messages?select=*&order=occurred_at.desc&limit=3000"),
         supabaseGet<Row[]>("chat_page_messages?select=*&order=occurred_at.desc&limit=3000"),
-        supabaseGet<Row[]>("central_order_master?select=*&order=created_at.desc&limit=3000"),
+        supabaseGet<Row[]>("bb_orders?select=*&order=created_at.desc&limit=3000"),
       ]);
       const map = new Map<string, Row>();
       const add = (row: Row, kind: "customer" | "page" | "order") => {
@@ -93,16 +93,16 @@ export const appRouter = router({
         const q = encodeURIComponent(input.search.trim());
         params.push(`or=(order_number.ilike.*${q}*,customer_name.ilike.*${q}*,phone.ilike.*${q}*)`);
       }
-      const rows = await supabaseGet<Row[]>(`central_order_master?${params.join("&")}`);
+      const rows = await supabaseGet<Row[]>(`bb_orders?${params.join("&")}`);
       const orders = rows.map(orderWithPayload);
       const mapped = orders.filter((row) => row.items.length > 0).length;
       return { orders, stats: { total: orders.length, mapped, review: orders.length - mapped, codCheck: orders.filter((row) => !row.cod_amount && !row.expected_cod).length, pages: new Set(orders.map((row) => row.page_id).filter(Boolean)).size, sent: orders.filter((row) => text(row.telegram_status).toUpperCase() === "SENT").length } };
     }),
 
     dailyOrderHistory: publicProcedure.input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), search: z.string().optional() })).query(async ({ input }) => {
-      // Read the existing central_order_master table directly. The date is compared in
+      // Read the existing bb_orders table directly. The date is compared in
       // Bangkok time so the UI's date picker matches the shop's business day.
-      const rows = await supabaseGet<Row[]>("central_order_master?select=*&order=created_at.desc&limit=3000");
+      const rows = await supabaseGet<Row[]>("bb_orders?select=*&order=created_at.desc&limit=3000");
       const toBangkokDate = (value: unknown) => {
         const raw = text(value);
         if (!raw) return "";
@@ -125,10 +125,10 @@ export const appRouter = router({
       const thread = encodeURIComponent(input.threadId);
       let rows: Row[] = [];
       try {
-        rows = await supabaseGet<Row[]>(`central_order_master?page_id=eq.${page}&thread_id=eq.${thread}&select=*&order=created_at.desc`);
+        rows = await supabaseGet<Row[]>(`bb_orders?page_id=eq.${page}&thread_id=eq.${thread}&select=*&order=created_at.desc`);
       } catch {
-        // Some older central_order_master versions used conversation_key instead of thread_id.
-        rows = await supabaseGet<Row[]>(`central_order_master?page_id=eq.${page}&conversation_key=eq.${thread}&select=*&order=created_at.desc`);
+        // Some older bb_orders versions used conversation_key instead of thread_id.
+        rows = await supabaseGet<Row[]>(`bb_orders?page_id=eq.${page}&conversation_key=eq.${thread}&select=*&order=created_at.desc`);
       }
       return rows.map(orderWithPayload);
     }),

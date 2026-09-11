@@ -1,9 +1,9 @@
--- NIGHTOPS order history support for central_order_master
+-- NIGHTOPS order history support for bb_orders
 -- Run once in Supabase SQL Editor.
 -- This keeps order history separate from chat tables while preserving the
 -- shared lookup key: page_id + thread_id.
 
-alter table public.central_order_master
+alter table public.bb_orders
   add column if not exists raw_text text,
   add column if not exists raw_text_with_phone text,
   add column if not exists raw_text_with_phone_timed text,
@@ -25,22 +25,22 @@ alter table public.central_order_master
   add column if not exists has_cod boolean not null default false,
   add column if not exists raw_payload jsonb;
 
-create index if not exists central_order_master_history_date_idx
-  on public.central_order_master (order_date, created_at desc);
-create index if not exists central_order_master_history_page_thread_idx
-  on public.central_order_master (page_id, thread_id, order_time desc);
-create index if not exists central_order_master_history_phone_idx
-  on public.central_order_master (phone);
+create index if not exists bb_orders_history_date_idx
+  on public.bb_orders (order_date, created_at desc);
+create index if not exists bb_orders_history_page_thread_idx
+  on public.bb_orders (page_id, thread_id, order_time desc);
+create index if not exists bb_orders_history_phone_idx
+  on public.bb_orders (phone);
 
-comment on column public.central_order_master.chat_timeline is
+comment on column public.bb_orders.chat_timeline is
   'Order parser timeline snapshot; chat remains in chat_customer_messages/chat_page_messages';
-comment on column public.central_order_master.raw_text_with_phone is
+comment on column public.bb_orders.raw_text_with_phone is
   'Parser evidence snapshot used by order history, not a chat transcript source';
-comment on column public.central_order_master.raw_text_with_phone_timed is
+comment on column public.bb_orders.raw_text_with_phone_timed is
   'Timestamped parser evidence snapshot for order audit';
-comment on column public.central_order_master.page_id is
+comment on column public.bb_orders.page_id is
   'Shared link key to chat page projection';
-comment on column public.central_order_master.thread_id is
+comment on column public.bb_orders.thread_id is
   'Shared link key to chat conversation';
 
 -- Recommended n8n upsert identity:

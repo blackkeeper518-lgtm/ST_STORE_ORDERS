@@ -1,8 +1,8 @@
 -- BB ORDERS ITEMS FALLBACK
--- ใช้กับ public.central_order_master หลังตรวจว่าคอลัมน์ telegram_body และ display_for_packer มีอยู่แล้ว
+-- ใช้กับ public.bb_orders หลังตรวจว่าคอลัมน์ telegram_body และ display_for_packer มีอยู่แล้ว
 -- ไม่ลบ/ไม่เขียนทับ items_json ที่มีข้อมูลอยู่แล้ว
 
-create or replace function public.central_order_master_fill_items_json_fallback()
+create or replace function public.bb_orders_fill_items_json_fallback()
 returns trigger
 language plpgsql
 as $$
@@ -25,7 +25,7 @@ begin
     );
   end if;
 
-  -- fallback 2: legacy single product columns already present in central_order_master
+  -- fallback 2: legacy single product columns already present in bb_orders
   if jsonb_array_length(candidate) = 0 and (
     new.sku is not null or new.th_name is not null or new.display_label is not null or new.display_for_packer is not null
   ) then
@@ -36,7 +36,7 @@ begin
       'display_for_packer', new.display_for_packer,
       'quantity', 1,
       'unit_price', null,
-      'fallback_source', 'central_order_master_legacy_columns'
+      'fallback_source', 'bb_orders_legacy_columns'
     )));
   end if;
 
@@ -59,12 +59,12 @@ begin
 end;
 $$;
 
-drop trigger if exists central_order_master_fill_items_json_fallback on public.central_order_master;
-create trigger central_order_master_fill_items_json_fallback
+drop trigger if exists bb_orders_fill_items_json_fallback on public.bb_orders;
+create trigger bb_orders_fill_items_json_fallback
 before insert or update of items_json, telegram_body, sku, th_name, display_label, display_for_packer
-on public.central_order_master
-for each row execute function public.central_order_master_fill_items_json_fallback();
+on public.bb_orders
+for each row execute function public.bb_orders_fill_items_json_fallback();
 
 -- ตรวจสอบรายการที่ยังว่างหลังติดตั้ง trigger
-comment on function public.central_order_master_fill_items_json_fallback() is
-  'Fills empty central_order_master.items_json from telegram_body payload or legacy product columns without overwriting non-empty items';
+comment on function public.bb_orders_fill_items_json_fallback() is
+  'Fills empty bb_orders.items_json from telegram_body payload or legacy product columns without overwriting non-empty items';
