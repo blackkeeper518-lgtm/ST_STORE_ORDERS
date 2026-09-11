@@ -238,6 +238,66 @@
   --chart-4: #c2410c;
   --chart-5: #9a3412;
   color-scheme: dark;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: #050505;
+  background-image:
+    linear-gradient(135deg, rgb(255 145 0 / 0.08) 0%, transparent 28%),
+    repeating-linear-gradient(135deg, transparent 0 68px, rgb(244 114 22 / 0.15) 69px 71px, transparent 72px 112px),
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 12px),
+    linear-gradient(115deg, #030303 0%, #0a0806 43%, #050505 43.2%, #0d0a07 100%);
+}
+
+.store-orange::before {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.78;
+  background:
+    linear-gradient(132deg, transparent 0 41%, rgb(255 127 0 / 0.96) 41.2% 43.8%, rgb(255 196 0 / 0.92) 44% 45.3%, rgb(255 127 0 / 0.55) 45.5% 46.2%, transparent 46.5%),
+    repeating-linear-gradient(132deg, transparent 0 82px, rgb(249 115 22 / 0.7) 83px 85px, transparent 86px 132px),
+    linear-gradient(90deg, transparent 0 46%, rgb(255 154 0 / 0.12) 54%, transparent 78%);
+  mix-blend-mode: screen;
+}
+
+.store-orange::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.3;
+  background-image:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(90deg, transparent 0 18px, rgb(255 255 255 / 0.025) 19px 20px, transparent 21px 38px);
+  mask-image: linear-gradient(90deg, #000 0 45%, transparent 78%);
+}
+
+.store-orange > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Keep the navigation rail deep black so the hero pattern stays in the main canvas. */
+.store-orange [data-slot="sidebar"],
+.store-orange [data-sidebar="sidebar"],
+.store-orange [data-slot="sidebar-inner"] {
+  background-color: #050505 !important;
+  background-image: linear-gradient(180deg, #070707 0%, #050505 58%, #080604 100%) !important;
+  border-color: rgb(249 115 22 / 0.14) !important;
+}
+
+.store-orange [data-slot="sidebar-content"] {
+  background: #050505 !important;
+}
+
+.store-orange [data-slot="sidebar-menu-button"]:hover,
+.store-orange [data-slot="sidebar-menu-button"][data-active="true"] {
+  background-color: rgb(249 115 22 / 0.12) !important;
+  box-shadow: inset 2px 0 0 #f97316;
 }
 
 /* Replace the old purple/cyan/blue accent utilities only inside the ST skin. */
@@ -314,6 +374,22 @@
 .store-orange [class*="bg-[#181020]"],
 .store-orange [class*="bg-[#1a1224]"] { background-color: #191108 !important; }
 .store-orange [class*="bg-[#1a1a19]"] { background-color: #1a130b !important; }
+
+.store-orange [class*="shadow-2xl"] { --tw-shadow-color: rgb(249 115 22 / 0.14) !important; }
+.store-orange [class*="bg-gradient-to-r"] {
+  background-image: linear-gradient(105deg, #c2410c 0%, #f97316 46%, #facc15 100%) !important;
+  color: #1c0d03 !important;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .store-orange::before { animation: st-orange-drift 18s ease-in-out infinite alternate; }
+}
+
+@keyframes st-orange-drift {
+  from { transform: translate3d(-1%, 0, 0) scale(1.01); opacity: 0.7; }
+  to { transform: translate3d(1%, -0.5%, 0) scale(1.03); opacity: 0.88; }
+}
 
 .store-orange input:focus,
 .store-orange textarea:focus,

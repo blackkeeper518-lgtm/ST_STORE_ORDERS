@@ -67,7 +67,8 @@ create index if not exists order_customer_links_customer_idx on public.order_cus
 
 create table if not exists public.parcel_order_matches (
   id uuid primary key default gen_random_uuid(),
-  parcel_id uuid not null references public.parcels(id) on delete cascade,
+  -- Keep this as text because legacy parcels tables may use bigint, uuid, or text ids.
+  parcel_id text not null,
   tracking_number text,
   order_id bigint,
   order_number text,
@@ -75,6 +76,8 @@ create table if not exists public.parcel_order_matches (
   match_method text,
   match_score numeric(5,2) not null default 0,
   match_status text not null default 'review' check (match_status in ('matched','review','unmatched')),
+  match_evidence jsonb not null default '[]'::jsonb,
+  candidate_count integer not null default 0,
   reviewed_by text,
   reviewed_at timestamptz,
   created_at timestamptz not null default now(),
@@ -86,7 +89,7 @@ create index if not exists parcel_order_matches_status_idx on public.parcel_orde
 
 create table if not exists public.shipment_events (
   id uuid primary key default gen_random_uuid(),
-  parcel_id uuid references public.parcels(id) on delete cascade,
+  parcel_id text,
   tracking_number text not null,
   status text not null,
   status_label text,
@@ -97,6 +100,7 @@ create table if not exists public.shipment_events (
   unique(tracking_number, status, event_at)
 );
 create index if not exists shipment_events_tracking_idx on public.shipment_events(tracking_number, event_at desc);
+create index if not exists shipment_events_status_idx on public.shipment_events(status, event_at desc);
 
 comment on table public.customer_profiles is 'Normalized customer identity shared only inside this store database';
 comment on table public.customer_addresses is 'Customer address fingerprints and Thai administrative codes';
@@ -110,8 +114,14 @@ select
   c.customer_segment, c.total_orders, c.successful_deliveries, c.returned_orders,
   c.last_order_at, c.last_shipment_at,
   count(distinct a.id) as address_count,
-  count(distinct m.id) as parcel_match_count
+  count(distinct m.id) as parcel_match_count,
+  count(distinct m.id) filter (where m.match_status = 'review') as parcel_review_count,
+  max(m.updated_at) as last_match_at
 from public.customer_profiles c
 left join public.customer_addresses a on a.customer_id = c.id
 left join public.parcel_order_matches m on m.customer_id = c.id
 group by c.id;
+
+-- Browser/dashboard read-only surface. Keep writes server-side/n8n only.
+grant select on public.vw_customer_history to anon, authenticated;
+notify pgrst, 'reload schema';
