@@ -70,7 +70,7 @@ export default function OutOfStockBoard({
       <div className="mx-auto max-w-6xl">
         <div className="mb-5 flex items-center gap-3 text-sm font-semibold tracking-wide text-zinc-200">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-black">BB</span>
-          <span>SINGTO STORE</span>
+          <span>ST SINGTO STORE</span>
           <span className="rounded-full border border-zinc-700 px-3 py-1 text-[10px] text-zinc-400">
             LIVE STOCK BOARD
           </span>
@@ -93,7 +93,7 @@ export default function OutOfStockBoard({
               <p className="text-[10px] uppercase tracking-widest text-zinc-500">วันนี้</p>
               <p className="mt-1 text-lg font-bold">{updatedAt.toLocaleDateString("th-TH")}</p>
             </div>
-            <div className="rounded-2xl bg-orange-600 px-5 py-3 shadow-lg shadow-pink-600/20">
+            <div className="rounded-2xl bg-orange-600 px-5 py-3 shadow-lg shadow-orange-600/20">
               <p className="text-[10px] uppercase tracking-widest text-orange-100">หมดทั้งหมด</p>
               <p className="mt-1 text-lg font-bold">{soldOutCount} ตัว</p>
             </div>
