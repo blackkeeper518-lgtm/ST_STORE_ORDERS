@@ -1,5 +1,5 @@
 {
-  "name": "thai-order-project-vault",
+  "name": "singto-store-system",
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
@@ -10,7 +10,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "test:live": "vitest run server/supabase.live.test.ts server/vault-access.test.ts",
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "check:layout": "grep -q 'html, body, #root' client/src/index.css"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -77,6 +79,7 @@
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
+    "xlsx": "^0.18.5",
     "zod": "^4.1.12"
   },
   "devDependencies": {

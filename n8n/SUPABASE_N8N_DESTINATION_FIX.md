@@ -21,7 +21,7 @@ Prefer: resolution=merge-duplicates,return=minimal
 Content-Type: application/json
 ```
 
-Do not paste the service-role key into a Code node, workflow JSON, frontend, or chat. Replace the Header Auth credential used by `👑 bb_orders2` and `👑 bb_orders3`, which POST to `bb_order`, then execute the workflow again.
+Do not paste the service-role key into a Code node, workflow JSON, frontend, or chat. Replace the Header Auth credential used by `👑 st_orders2` and `👑 st_orders3`, which POST to `bb_order`, then execute the workflow again.
 
 Do not disable RLS or add an unrestricted `anon` INSERT policy. If the workflow must use a non-service key, create a narrowly scoped server-side RPC with validation and call the RPC instead.
 

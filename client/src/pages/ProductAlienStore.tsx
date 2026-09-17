@@ -1,0 +1,20 @@
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { trpc } from "@/lib/trpc";
+import { Database, RefreshCw, Save, Search } from "lucide-react";
+import { useState } from "react";
+
+export default function ProductAlienStore() {
+  const [search, setSearch] = useState("");
+  const [raw, setRaw] = useState("");
+  const terms = trpc.productAlien.terms.useQuery({ search }, { refetchInterval: 30_000 });
+  const save = trpc.productAlien.saveTerm.useMutation({ onSuccess: () => { setRaw(""); void terms.refetch(); } });
+  const rows = (terms.data ?? []) as Array<Record<string, unknown>>;
+  return <div className="min-h-full space-y-5 text-white">
+    <header className="rounded-3xl border border-orange-500/20 bg-[#100c19] p-6 shadow-2xl"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-300"><Database className="mr-2 inline h-4 w-4" />PRODUCT ALIEN · STORE</p><h1 className="mt-3 text-3xl font-semibold">ห้องเก็บคำดิบ Alien</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-orange-100/55">เก็บ raw และ alias เต็มทุกตัวอักษร รวมสี แบรนด์ ตัวคั่น และจำนวน ห้ามตัดคำดิบ</p></div><Button variant="outline" onClick={() => terms.refetch()} className="border-orange-400/20 bg-transparent text-orange-100"><RefreshCw className={terms.isFetching ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />รีเฟรช</Button></div></header>
+    <Card className="rounded-3xl border-orange-500/15 bg-[#100d15]"><CardHeader><CardTitle className="text-base">บันทึกคำดิบใหม่แบบไม่ตัด</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2"><Input value={raw} onChange={e => setRaw(e.target.value)} placeholder="เช่น 🟢CAVALLO_GREEN | 2 คอต" className="min-w-[280px] flex-1 border-orange-500/15 bg-black/20 text-white" /><Button disabled={!raw.trim() || save.isPending} onClick={() => save.mutate({ raw_text: raw, alias_text: raw, alias_norm: raw.toLowerCase(), mapping_status: "REVIEW", source: "MANUAL_ALIEN_STORE" })} className="bg-orange-600 text-white"><Save className="mr-2 h-4 w-4" />เก็บคำดิบ</Button></div>{save.error ? <p className="mt-2 text-xs text-red-300">{save.error.message}</p> : null}</CardContent></Card>
+    <Card className="overflow-hidden rounded-3xl border-orange-500/15 bg-[#100d15]"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle className="text-base">หลักฐานคำที่เก็บไว้</CardTitle><div className="relative w-full sm:w-80"><Search className="absolute left-3 top-2.5 h-4 w-4 text-orange-100/40" /><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา raw / alias / order" className="border-orange-500/15 bg-black/20 pl-9 text-white" /></div></div></CardHeader><CardContent className="space-y-2">{terms.isLoading ? <p className="p-8 text-center text-sm text-orange-100/40">กำลังโหลด…</p> : rows.map((row, index) => <div key={String(row.id ?? index)} className="rounded-2xl border border-orange-500/10 bg-black/15 p-4"><div className="flex flex-wrap items-center gap-2"><Badge className="border-orange-400/20 bg-orange-400/10 text-orange-200">{String(row.mapping_status ?? "REVIEW")}</Badge><span className="font-mono text-xs text-orange-100/55">{String(row.order_number ?? row.upsert_key ?? "ไม่มีเลขออเดอร์")}</span><span className="text-xs text-orange-100/45">{String(row.page_name ?? "")}</span></div><p className="mt-3 break-words font-mono text-sm text-white">RAW: {String(row.raw_text ?? "")}</p><p className="mt-2 break-words text-xs text-orange-200">ALIAS: {String(row.alias_text ?? "")}</p><p className="mt-2 text-xs text-orange-100/45">{String(row.facebook_name ?? "")} · thread {String(row.thread_id ?? "")} · customer {String(row.customer_id ?? "")}</p></div>)}{!terms.isLoading && !rows.length ? <p className="p-8 text-center text-sm text-orange-100/40">ยังไม่มีคำในห้องเก็บ</p> : null}</CardContent></Card>
+  </div>;
+}

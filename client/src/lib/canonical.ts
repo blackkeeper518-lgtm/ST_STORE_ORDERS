@@ -1,13 +1,38 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const CONFIG_KEY = "manus3-supabase-config";
+const CONFIG_KEY = "st-supabase-config";
+export type Camp = "BB" | "ST" | "SB";
+const DEPLOYMENT_CAMP: Camp = "ST";
 export type SupabaseConfig = { url: string; anonKey: string; orderTable?: string };
 let client: SupabaseClient | null = null;
 let clientSignature = "";
-export function getSupabaseConfig(): SupabaseConfig | null { try { const raw = localStorage.getItem(CONFIG_KEY); if (!raw) return null; const value = JSON.parse(raw) as Partial<SupabaseConfig>; if (!value.url || !value.anonKey) return null; return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey, orderTable: value.orderTable || "canonical_orders" }; } catch { return null; } }
-export function saveSupabaseConfig(config: SupabaseConfig) { const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), orderTable: config.orderTable?.trim() || "canonical_orders" }; localStorage.setItem(CONFIG_KEY, JSON.stringify(clean)); client = null; clientSignature = ""; }
-export function clearSupabaseConfig() { localStorage.removeItem(CONFIG_KEY); client = null; clientSignature = ""; }
-export function getSupabase() { const config = getSupabaseConfig(); if (!config) return null; const signature = `${config.url}|${config.anonKey}`; if (!client || signature !== clientSignature) { client = createClient(config.url, config.anonKey); clientSignature = signature; } return client; }
+export function getActiveCamp(): Camp { return DEPLOYMENT_CAMP; }
+export function setActiveCamp(_camp: Camp) { client = null; clientSignature = ""; }
+function profileKey(_camp: Camp) { return CONFIG_KEY; }
+export function getSupabaseConfig(camp: Camp = getActiveCamp()): SupabaseConfig | null {
+  try {
+    const raw = localStorage.getItem(profileKey(camp));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<SupabaseConfig>;
+    if (!value.url || !value.anonKey) return null;
+    return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey, orderTable: value.orderTable || "vw_st_orders_all_v2" };
+  } catch { return null; }
+}
+export function saveSupabaseConfig(config: SupabaseConfig, camp: Camp = getActiveCamp()) { const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), orderTable: config.orderTable?.trim() || defaultOrderView(camp) }; localStorage.setItem(profileKey(camp), JSON.stringify(clean)); client = null; clientSignature = ""; }
+export function clearSupabaseConfig(camp: Camp = getActiveCamp()) { localStorage.removeItem(profileKey(camp)); client = null; clientSignature = ""; }
+export function getSupabase() { const config = getSupabaseConfig(); if (!config) return null; const signature = `${getActiveCamp()}|${config.url}|${config.anonKey}`; if (!client || signature !== clientSignature) { client = createClient(config.url, config.anonKey); clientSignature = signature; } return client; }
+export function subscribeToChatMessages(onChange: () => void) {
+  const api = getSupabase();
+  if (!api) return () => undefined;
+  const channel = api
+    .channel(`chat-live-${getActiveCamp().toLowerCase()}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "chat_customer_messages" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "chat_page_messages" }, onChange)
+    .subscribe();
+  return () => { void api.removeChannel(channel); };
+}
+const CHAT_HISTORY_DAYS = 2;
+function chatHistoryCutoff() { return new Date(Date.now() - CHAT_HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString(); }
 export const supabase = { from: (table: string) => { const api = getSupabase(); if (!api) throw new Error("ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key"); return api.from(table); } } as any;
 function fail(error: any): never { throw new Error(error?.message || "Supabase connection failed"); }
 function num(v: any) { const n = Number(v); return v == null || v === "" || !Number.isFinite(n) ? null : n; }
@@ -46,11 +71,94 @@ function scoreDailyOrderSignal(text: string, latestCod: number | null) {
   return { score, qualified, qualifiedCod, reasons: Array.from(new Set(reasons)), coreCount: core.length, flowCount: flow.length };
 }export type CanonicalItem = Record<string, any>;
 export type CanonicalOrder = Record<string, any> & { items: CanonicalItem[]; items_text: string; display_for_packer: string | null; is_ready_to_pack: boolean; cod_check_status: string | null; audit_status: string | null; order_status: string | null; telegram_status: string | null };
+const ORDER_SOURCE_TABLE_BY_CAMP: Record<Camp, string> = { BB: "st_orders", ST: "st_orders", SB: "sb_orders" };
+const ORDER_OPERATIONAL_LIMIT = 200;
+function defaultOrderView(camp: Camp) { return ORDER_SOURCE_TABLE_BY_CAMP[camp]; }
 function currentOrderWindowStart() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, Number(part.value)])); return new Date(Date.UTC(values.year, values.month - 1, values.day - 1, 7, 0, 0)).toISOString(); }
-function normalizeItem(item: CanonicalItem): CanonicalItem { const master = item.product_master && typeof item.product_master === "object" ? item.product_master : {}; const display = item.display_for_packer_with_qty || item.display_for_packer_master || item.display_for_packer_exact || master.display_for_packer || item.display_for_packer || item.label || item.label_display || master.label_display || item.product_name || item.th_name || master.th_name || item.sku || null; const mapping = item.mapping_status || (item.sku_match_status === "MATCHED_PRODUCT_MASTER" ? "MATCHED" : null); return { ...item, ...master, quantity: num(item.quantity), unit_price: num(item.unit_price_order ?? item.unit_price), expected_cod: num(item.expected_cod), stock_qty: num(item.stock_qty ?? item.inventory?.stock_qty), mapping_status: mapping, display_for_packer: display, label: item.label || item.label_display || master.label_display || display, label_display: item.label_display || item.label || master.label_display || display }; }
+function normalizeItem(item: CanonicalItem): CanonicalItem { const master = item.product_master && typeof item.product_master === "object" ? item.product_master : {}; const display = item.master_display_for_packer || master.master_display_for_packer || item.display_for_packer_with_qty || item.display_for_packer_master || item.display_for_packer_exact || master.display_for_packer || item.display_for_packer || item.label || item.label_display || master.label_display || item.product_name || item.th_name || master.th_name || item.sku || null; const mapping = item.mapping_status || (item.sku_match_status === "MATCHED_PRODUCT_MASTER" ? "MATCHED" : null); return { ...item, ...master, quantity: num(item.quantity ?? item.extracted_qty ?? item.qty), unit_price: num(item.unit_price_order ?? item.unit_price ?? master.unit_price), expected_cod: num(item.expected_cod), stock_qty: num(item.stock_qty ?? item.inventory?.stock_qty), mapping_status: mapping, display_for_packer: display, label: item.label || item.label_display || master.label_display || display, label_display: item.label_display || item.label || master.label_display || display }; }
 function parseJsonArray(value: unknown): CanonicalItem[] { if (Array.isArray(value)) return value as CanonicalItem[]; if (typeof value !== "string") return []; try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
-function normalizeOrder(row: any, items: CanonicalItem[]): CanonicalOrder { const normalized = items.map(normalizeItem); const cod = num(row.web_cod_amount) ?? num(row.cod_amount) ?? num(row.raw_cod_amount) ?? num(row.expected_cod); const mapping = row.web_mapping_status || row.mapping_status || (normalized.length > 0 && normalized.every(item => item.mapping_status === "MATCHED") ? "MATCHED" : "CHECK_DATA"); const address = row.web_address_primary || row.address_display_primary || row.full_address || row.address_display_fallback || row.web_address_fallback || row.web_address_short || row.address_line_1 || ""; const productDisplay = normalized.map(i => i.display_for_packer || i.sku || "").filter(Boolean).join("\n") || row.web_product_display || row.product_display_final || row.product_display_primary || row.product_display_fallback || row.product_display_raw || row.display_for_packer || null; return { ...row, full_address: address, address_display_primary: row.web_address_primary || row.address_display_primary || address, address_display_fallback: row.web_address_fallback || row.address_display_fallback || address, items: normalized, mapping_status: mapping, order_number: row.order_number || `#${row.id}`, order_time: row.order_time || row.created_at || null, cod_amount: cod, is_ready_to_pack: row.is_ready_to_pack ?? (mapping === "MATCHED"), cod_check_status: row.cod_check_status ?? (cod == null ? "CHECK" : "PASS"), audit_status: row.audit_status ?? mapping, telegram_status: row.telegram_status ?? null, items_text: productDisplay || "", display_for_packer: productDisplay }; }
-export async function readCanonicalOrders(search = "", since = currentOrderWindowStart()) { const api = getSupabase(); if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" }); const { data: rows, error } = await api.from("vw_orders_web_all_fields").select("*").gte("order_time", since).lte("order_time", new Date().toISOString()).order("order_time", { ascending: false }).limit(3000); if (error) fail(error); const query = search.trim().toLowerCase(); const orders = (rows ?? []).map((row: any) => { const items = parseJsonArray(row.product_items).length ? parseJsonArray(row.product_items) : parseJsonArray(row.web_items_clean).length ? parseJsonArray(row.web_items_clean) : parseJsonArray(row.web_items_all_fields); return normalizeOrder(row, items); }).filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query)); return { orders, itemError: null, fetchedAt: new Date().toISOString(), since }; }
+function orderLocalTimestamp(row: any): string | null {
+  const dateText = String(row.order_date || row.date_th || "");
+  const timeText = String(row.time_th || "");
+  const dateMatch = dateText.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+  const timeMatch = timeText.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!dateMatch || !timeMatch) return null;
+  const day = Number(dateMatch[1]); const month = Number(dateMatch[2]);
+  let year = Number(dateMatch[3]); if (year < 100) year += 2000; if (year > 2400) year -= 543;
+  const hour = Number(timeMatch[1]); const minute = Number(timeMatch[2]); const second = Number(timeMatch[3] || 0);
+  if (![day, month, year, hour, minute, second].every(Number.isFinite)) return null;
+  // Bangkok local time represented as UTC ISO: 14 Sep 21:00 +07 = 14 Sep 14:00Z.
+  return new Date(Date.UTC(year, month - 1, day, hour - 7, minute, second)).toISOString();
+}
+function effectiveOrderTime(row: any): string | null {
+  // Canonical order time: Facebook API timestamp of the actual order message.
+  // Never use created_at/updated_at as the order time.
+  return row.order_message_created_at || row.order_close_time_from_chat || orderLocalTimestamp(row) || row.order_time || null;
+}
+function normalizeOrder(row: any, items: CanonicalItem[]): CanonicalOrder { const normalized = items.map(normalizeItem); const cod = num(row.cod_amount); const mapping = row.web_mapping_status || row.mapping_status || (normalized.length > 0 && normalized.every(item => item.mapping_status === "MATCHED") ? "MATCHED" : "CHECK_DATA"); const address = row.address_complete_web || row.web_address_primary || row.address_display_primary || row.full_address || row.address_display_packer || row.addressclean || row.address_display_fallback || row.web_address_fallback || row.web_address_short || [row.address_line_1, row.address_line_2, row.district, row.amphoe, row.province, row.zipcode].filter(Boolean).join(" ") || ""; const productDisplay = normalized.map(i => i.display_for_packer || i.sku || "").filter(Boolean).join("\n") || row.web_product_display || row.product_display_final || row.product_display_primary || row.product_display_fallback || row.product_display_raw || row.display_for_packer || null; return { ...row, full_address: address, address_display_primary: row.web_address_primary || row.address_display_primary || address, address_display_fallback: row.web_address_fallback || row.address_display_fallback || address, items: normalized, mapping_status: mapping, order_number: row.order_number || `#${row.id}`, order_time: effectiveOrderTime(row), cod_amount: cod, is_ready_to_pack: row.is_ready_to_pack ?? (mapping === "MATCHED"), cod_check_status: row.cod_check_status ?? (cod == null ? "CHECK" : "PASS"), audit_status: row.audit_status ?? mapping, telegram_status: row.telegram_status ?? null, items_text: productDisplay || "", display_for_packer: productDisplay }; }
+export async function readCanonicalOrders(search = "", since: string | null = null, until: string | null = null) {
+  const api = getSupabase();
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
+
+  const sourceTable = getSupabaseConfig()?.orderTable || defaultOrderView(getActiveCamp());
+  let queryBuilder = api.from(sourceTable).select("*");
+  const { data: rows, error } = await queryBuilder
+    .limit(search.trim() || since || until ? 1000 : ORDER_OPERATIONAL_LIMIT);
+  if (error) fail(error);
+
+  const orderRows = rows ?? [];
+  const orderIds: number[] = [];
+  const itemsByOrder = new Map<number, CanonicalItem[]>();
+  let itemError: unknown = null;
+
+  // canonical_orders คือหัวบิล ส่วนสินค้าจริงอยู่ใน canonical_order_items
+  // รวมกลับมาเป็นแถวออเดอร์เดียวสำหรับหน้าเว็บ โดยไม่อ่านสินค้าเฉพาะจาก JSON ในหัวบิล
+  if (orderIds.length) {
+    const { data: itemRows, error: itemsError } = await api
+      .from("canonical_order_items")
+      .select("*")
+      .in("order_id", orderIds)
+      .order("line_no", { ascending: true });
+
+    itemError = itemsError;
+    if (!itemsError) {
+      for (const item of itemRows ?? []) {
+        const orderId = Number((item as any).order_id);
+        if (!Number.isFinite(orderId)) continue;
+        itemsByOrder.set(orderId, [...(itemsByOrder.get(orderId) ?? []), item as CanonicalItem]);
+      }
+    }
+  }
+
+  const query = search.trim().toLowerCase();
+  const orders = orderRows
+    .map((row: any) => {
+      const linkedItems = itemsByOrder.get(Number(row.id));
+
+      // Fallback รองรับข้อมูลเก่าที่ยังไม่ได้แตกลง canonical_order_items
+      const fallbackItems = parseJsonArray(row.order_items).length
+        ? parseJsonArray(row.order_items)
+        : parseJsonArray(row.items_json).length
+          ? parseJsonArray(row.items_json)
+          : parseJsonArray(row.product_items).length
+            ? parseJsonArray(row.product_items)
+            : parseJsonArray(row.web_items_clean).length
+              ? parseJsonArray(row.web_items_clean)
+              : parseJsonArray(row.web_items_all_fields);
+
+      const normalized = normalizeOrder(row, linkedItems?.length ? linkedItems : fallbackItems);
+      return {
+        ...normalized,
+        source_table: sourceTable,
+        raw_text_with_phone_timed: row.raw_text_with_phone_timed ?? row.raw_text_with_phone ?? row.raw_text ?? null,
+        review_status: row.review_status ?? null,
+      } as CanonicalOrder;
+    })
+    .filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query));
+
+  orders.sort((a, b) => new Date(b.order_time || 0).getTime() - new Date(a.order_time || 0).getTime());
+  return { orders, itemError, sourceTable, fetchedAt: new Date().toISOString(), since };
+}
 export type StockProduct = { id: number; sku: string; label: string; thName: string; emoji: string; price: number | null; stockQty: number; stockStatus: string | null; aliases: string; inventoryId: number | string | null };
 export type ProductMapAlias = { id: string; alias: string; canonicalSku: string; canonicalLabel: string; isActive: boolean };
 
@@ -117,19 +225,35 @@ export async function readStockProducts(): Promise<StockProduct[]> {
 export async function updateInventoryStock(input: { productId: number; sku: string; stockQty: number; stockStatus?: "IN_STOCK" | "OUT_OF_STOCK" }) { const api = getSupabase(); if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" }); const stockQty = Math.max(0, Math.trunc(Number(input.stockQty) || 0)); const stockStatus = input.stockStatus ?? (stockQty > 0 ? "IN_STOCK" : "OUT_OF_STOCK"); const payload = { product_id: input.productId, sku: input.sku, stock_qty: stockQty, stock_status: stockStatus, updated_at: new Date().toISOString() }; const { data: existing, error: findError } = await api.from("inventory").select("id").eq("product_id", input.productId).maybeSingle(); if (findError) fail(findError); if (existing?.id != null) { const { error } = await api.from("inventory").update(payload).eq("id", existing.id); if (error) fail(error); } else { const { error } = await api.from("inventory").insert(payload); if (error) fail(error); } return { ...input, stockQty, stockStatus }; }
 export async function setInventoryAvailability(input: { productId: number; sku: string; available: boolean; currentQty: number }) { return updateInventoryStock({ ...input, stockQty: input.available ? Math.max(1, input.currentQty || 1) : 0, stockStatus: input.available ? "IN_STOCK" : "OUT_OF_STOCK" }); }
 export async function readDailyOrders(date: string, search = "") { const start = new Date(`${date}T00:00:00+07:00`).toISOString(); const result = await readCanonicalOrders(search, start); const orders = result.orders.filter((o: any) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(o.order_time ?? o.created_at ?? "")) === date); return { date, orders, total: orders.length }; }
-async function readChatRows() { const api = getSupabase(); if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" }); const [{ data: customers, error: customerError }, { data: pages, error: pageError }] = await Promise.all([api.from("chat_customer_messages").select("*").order("occurred_at", { ascending: true }).limit(10000), api.from("chat_page_messages").select("*").order("occurred_at", { ascending: true }).limit(10000)]); if (customerError) fail(customerError); if (pageError) fail(pageError); const rows = [...(customers ?? []).map((r: any) => ({ ...r, _speaker: "customer", _side: "left", _name: r.customer_name, _text: asText(r.message_text), _thread: r.conversation_key })), ...(pages ?? []).map((r: any) => ({ ...r, _speaker: "page", _side: "right", _name: r.page_sender_name, _text: asText(r.message_text), _thread: r.conversation_key }))]; return rows.sort((a, b) => new Date(a.occurred_at || a.synced_at || 0).getTime() - new Date(b.occurred_at || b.synced_at || 0).getTime()); }
-export async function readChatThreads() { const rows = await readChatRows(); const map = new Map<string, any>(); for (const row of rows) { const key = `${row.page_id ?? ""}:${row._thread ?? ""}`; const current = map.get(key) ?? { key, pageId: row.page_id, threadId: row._thread, customerId: row.customer_id, pageName: row.page_name || "ไม่ระบุเพจ", customerName: row.customer_name || row._name || "ลูกค้า", latestAt: row.occurred_at || row.synced_at, latestOrderNumber: null, preview: row._text || (row.has_image ? "[ไฟล์แนบ]" : ""), orderCount: 0, unread: false, messageCount: 0, orders: [], chatTimeline: [] as string[] }; current.latestAt = row.occurred_at || row.synced_at || current.latestAt; current.preview = row._text || (row.has_image ? "[ไฟล์แนบ]" : current.preview); current.customerId ||= row.customer_id; current.customerName = current.customerName === "ลูกค้า" ? row.customer_name || row._name || current.customerName : current.customerName; current.messageCount += 1; current.chatTimeline.push(`${row._speaker === "page" ? "[เพจ]" : "[ลูกค้า]"} ${row._text || (row.has_image ? "[ไฟล์แนบ]" : "")}`); map.set(key, current); } try { const orders = await readCanonicalOrders(); for (const order of orders.orders) { const key = `${order.page_id ?? ""}:${order.thread_id ?? ""}`; const current = map.get(key); if (current) { current.orders.push(order); current.orderCount += 1; current.latestOrderNumber = order.order_number; } } } catch { /* ห้องแชทต้องไม่หายเพราะ View ออเดอร์อ่านไม่ได้ */ } return Array.from(map.values()).sort((a, b) => new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime()); }
-export async function readChatMessages(pageId: string, threadId: string) { const rows = await readChatRows(); return rows.filter(row => String(row.page_id) === String(pageId) && String(row._thread) === String(threadId)).map((row: any) => ({ id: row.id, text: row._text || (row.has_image ? "ส่งรูปภาพ" : ""), message_text: row._text, direction: row._speaker === "page" ? "outbound" : "inbound", senderType: row._speaker, senderName: row._name, side: row._side, occurredAt: row.occurred_at || row.synced_at, attachmentsJson: JSON.stringify(row.attachments_json || []), imageUrls: row.image_urls || [] })); }
+async function readChatRows() {
+  const api = getSupabase();
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
+  // Read the newest window first. Ascending + limit would permanently return
+  // the oldest rows once a chat table grows beyond the limit.
+  const cutoff = chatHistoryCutoff();
+  const customerResult = await api.from("chat_customer_messages").select("*").gte("occurred_at", cutoff).order("occurred_at", { ascending: false }).limit(10000);
+  if (customerResult.error) fail(customerResult.error);
+  const pageResult = await api.from("chat_page_messages").select("*").gte("occurred_at", cutoff).order("occurred_at", { ascending: false }).limit(10000);
+  const customers = customerResult.data ?? [];
+  const pages = pageResult.error ? [] : (pageResult.data ?? []);
+  const rows = [
+    ...customers.map((r: any) => ({ ...r, _speaker: r.speaker_type || r.speaker || "customer", _side: r.side || "left", _name: r.customer_name || r.sender_name, _text: asText(r.message_text ?? r.message_raw), _thread: r.thread_id || r.conversation_key || r.conversation_id, _occurred: r.occurred_at || r.time || r.created_at, _hasAttachment: Boolean(r.has_attachment || r.attachments?.length || r.attachments_json?.length) })),
+    ...pages.map((r: any) => ({ ...r, _speaker: r.speaker_type || r.speaker || "page", _side: r.side || "right", _name: r.page_sender_name || r.sender_name, _text: asText(r.message_text ?? r.message_raw), _thread: r.thread_id || r.conversation_key || r.conversation_id, _occurred: r.occurred_at || r.time || r.created_at, _hasAttachment: Boolean(r.has_attachment || r.attachments?.length || r.attachments_json?.length) })),
+  ];
+  return rows.sort((a, b) => new Date(a._occurred || a.occurred_at || a.synced_at || 0).getTime() - new Date(b._occurred || b.occurred_at || b.synced_at || 0).getTime());
+}
+export async function readChatThreads() { const rows = await readChatRows(); const map = new Map<string, any>(); for (const row of rows) { const key = `${row.page_id ?? ""}:${row._thread ?? ""}`; const current = map.get(key) ?? { key, pageId: row.page_id, threadId: row._thread, customerId: row.customer_id, pageName: row.page_name || "ไม่ระบุเพจ", customerName: row.customer_name || row._name || "ลูกค้า", latestAt: row._occurred || row.occurred_at || row.synced_at, latestOrderNumber: null, preview: row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : ""), orderCount: 0, unread: false, messageCount: 0, orders: [], chatTimeline: [] as string[] }; current.latestAt = row._occurred || row.occurred_at || row.synced_at || current.latestAt; current.preview = row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : current.preview); current.customerId ||= row.customer_id; current.customerName = current.customerName === "ลูกค้า" ? row.customer_name || row._name || current.customerName : current.customerName; current.messageCount += 1; current.chatTimeline.push(`${row._speaker === "page" ? "[เพจ]" : "[ลูกค้า]"} ${row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : "")}`); map.set(key, current); } try { const orders = await readCanonicalOrders(); for (const order of orders.orders) { const key = `${order.page_id ?? ""}:${order.thread_id || order.threadId || ""}`; const current = map.get(key); if (current) { current.orders.push(order); current.orderCount += 1; current.latestOrderNumber = order.order_number; } } } catch { /* ห้องแชทต้องไม่หายเพราะ View ออเดอร์อ่านไม่ได้ */ } return Array.from(map.values()).sort((a, b) => new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime()); }
+export async function readChatMessages(pageId: string, threadId: string) { const rows = await readChatRows(); return rows.filter(row => String(row.page_id) === String(pageId) && String(row._thread) === String(threadId)).map((row: any) => ({ id: row.id, text: row._text || (row._hasAttachment ? "ส่งรูปภาพ" : ""), message_text: row._text, direction: row._speaker === "page" ? "outbound" : "inbound", senderType: row._speaker, senderName: row._name, side: row._side, occurredAt: row._occurred || row.occurred_at || row.synced_at, attachmentsJson: JSON.stringify(row.attachments_json || []), imageUrls: row.image_urls || [] })); }
 export async function readDailyChatSummary(date: string) {
   const rows = await readChatRows(); let orders: any[] = [];
   try { const orderResult = await readCanonicalOrders("", new Date(date + "T00:00:00+07:00").toISOString()); orders = orderResult.orders; } catch { /* keep chat summary usable when canonical view is unavailable */ }
   const ordersByRoom = new Map(orders.map((order: any) => [String(order.page_id ?? "") + ":" + String(order.thread_id ?? ""), order]));
-  const dayRows = rows.filter(row => { const value = row.occurred_at || row.synced_at; return value && new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(value)) === date; });
+  const dayRows = rows.filter(row => { const value = row._occurred || row.occurred_at || row.synced_at; return value && new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(value)) === date; });
   const map = new Map<string, any>();
   for (const row of dayRows) {
-    const key = String(row.page_id ?? "") + ":" + String(row._thread ?? ""); const current = map.get(key) ?? { customerName: row.customer_name || row._name || "ไม่ระบุชื่อ", customerId: row.customer_id || "", pageName: row.page_name || "ไม่ระบุเพจ", pageId: row.page_id, threadId: row._thread, customerMessages: 0, pageMessages: 0, orderSignals: 0, signalScore: 0, signalReasons: [], coreSignalCount: 0, flowSignalCount: 0, qualifiedSignal: false, snippets: [], latestAt: row.occurred_at || row.synced_at, customerText: [], pageText: [], latestCod: null };
-    const text = row._text || (row.has_image ? "[ไฟล์แนบ]" : ""); if (row._speaker === "customer") { current.customerMessages += 1; current.customerText.push(text); } else { current.pageMessages += 1; current.pageText.push(text); }
-    current.latestAt = row.occurred_at || row.synced_at || current.latestAt; const cod = parseCod(text); if (cod != null) current.latestCod = cod;
+    const key = String(row.page_id ?? "") + ":" + String(row._thread ?? ""); const current = map.get(key) ?? { customerName: row.customer_name || row._name || "ไม่ระบุชื่อ", customerId: row.customer_id || "", pageName: row.page_name || "ไม่ระบุเพจ", pageId: row.page_id, threadId: row._thread, customerMessages: 0, pageMessages: 0, orderSignals: 0, signalScore: 0, signalReasons: [], coreSignalCount: 0, flowSignalCount: 0, qualifiedSignal: false, snippets: [], latestAt: row._occurred || row.occurred_at || row.synced_at, customerText: [], pageText: [], latestCod: null };
+    const text = row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : ""); if (row._speaker === "customer") { current.customerMessages += 1; current.customerText.push(text); } else { current.pageMessages += 1; current.pageText.push(text); }
+    current.latestAt = row._occurred || row.occurred_at || row.synced_at || current.latestAt; const cod = parseCod(text); if (cod != null) current.latestCod = cod;
     const signal = scoreDailyOrderSignal(text, cod); if (signal.qualified) current.orderSignals += 1; current.signalScore += signal.score; current.coreSignalCount += signal.coreCount; current.flowSignalCount += signal.flowCount; current.qualifiedSignal ||= signal.qualified; current.signalReasons.push(...signal.reasons);
     if (text.trim()) current.snippets.push(text.slice(0, 300)); map.set(key, current);
   }
@@ -141,14 +265,15 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
   const api = getSupabase();
   if (!api) fail({ message: 'ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key' });
   const [itemsResult, masterResult, aliasResult] = await Promise.all([
-    api.from('canonical_order_items').select('*').order('created_at', { ascending: false }).limit(3000),
-    api.from('product_master').select('*').limit(5000),
-    api.from('product_map_master').select('*').limit(10000),
+    api.from('canonical_order_items').select('id,order_id,line_no,raw_item_text,raw_product_text,raw_text,sku,product_id,quantity,qty,extracted_qty,unit_price,unit_price_order,line_total,cod_amount,mapping_status,match_status,display_for_packer,master_display_for_packer,label_display,stock_qty,available_qty,stock_status,store_code,created_at').order('created_at', { ascending: false }).limit(800),
+    api.from('product_master').select('id,sku,th_name,name_standard,display_for_packer,master_display_for_packer,label_display,unit_price,stock_qty,available_qty,stock_status,store_code').limit(1500),
+    api.from('product_map_master').select('sku,alias,alias_text,alias_norm,store_code').limit(3000),
   ]);
   if (itemsResult.error) fail(itemsResult.error);
   if (masterResult.error) fail(masterResult.error);
   if (aliasResult.error) fail(aliasResult.error);
-  const masters = masterResult.data ?? [];
+  const camp = getActiveCamp();
+  const masters = (masterResult.data ?? []).filter((master: any) => !master.store_code || String(master.store_code).toUpperCase() === camp);
   const byId = new Map(masters.map((master: any) => [String(master.id), master]));
   const bySku = new Map(masters.map((master: any) => [String(master.sku ?? '').trim().toLowerCase(), master]));
   const normalizeAlias = (value: any) => String(value ?? '').toLowerCase().normalize('NFKC').replace(/[\s_\-.,:;|()[\]{}]+/g, '').trim();
@@ -160,15 +285,21 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
   }
   const query = search.trim().toLowerCase();
   return (itemsResult.data ?? []).map((item: any) => {
-    const raw = String(item.raw_item_text ?? item.raw_product_text ?? item.raw_text ?? '').trim();
+    const raw = [item.raw_item_text, item.raw_product_text, item.raw_text].filter((value) => value != null && String(value) !== '').map((value) => String(value)).join('\n');
     const aliasSku = aliasToSku.get(normalizeAlias(raw)) ?? Array.from(aliasToSku.entries()).find(([alias]) => alias.length >= 3 && normalizeAlias(raw).includes(alias))?.[1];
     const resolvedSku = String(item.sku ?? '').trim() || aliasSku || '';
     const master = (item.product_id != null ? byId.get(String(item.product_id)) : undefined) ?? bySku.get(resolvedSku.toLowerCase());
-    const mapped = String(item.display_for_packer ?? item.label_display ?? master?.display_for_packer ?? master?.label_display ?? master?.name_standard ?? master?.th_name ?? master?.product_name ?? item.product_name ?? item.sku ?? '').trim();
+    const mapped = String(item.master_display_for_packer ?? master?.master_display_for_packer ?? item.display_for_packer ?? item.label_display ?? master?.display_for_packer ?? master?.label_display ?? master?.name_standard ?? master?.th_name ?? master?.product_name ?? item.product_name ?? item.sku ?? '').trim();
     const sku = String(item.sku ?? master?.sku ?? aliasSku ?? '').trim();
     const rawIsSku = Boolean(raw && sku && raw.toLowerCase() === sku.toLowerCase());
     const aliasMatched = Boolean(aliasSku && master);
+    const stockQty = item.stock_qty ?? master?.stock_qty ?? null;
+    const availableQty = item.available_qty ?? master?.available_qty ?? null;
+    const stockStatus = item.stock_status ?? master?.stock_status ?? (availableQty != null ? (Number(availableQty) > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK') : stockQty != null ? (Number(stockQty) > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK') : 'STOCK_UNKNOWN');
+    const unitPrice = item.unit_price ?? master?.unit_price ?? null;
+    const expectedLine = item.line_total ?? (unitPrice != null && item.quantity != null ? Number(unitPrice) * Number(item.quantity) : null);
+    const priceMismatch = item.cod_amount != null && expectedLine != null && Number(item.cod_amount) !== Number(expectedLine);
     const audit_status = !raw ? 'RAW_MISSING' : rawIsSku ? 'RAW_EQUALS_SKU' : aliasMatched ? 'MATCHED' : (item.mapping_status ?? item.match_status ?? 'REVIEW');
-    return { ...item, sku: sku || item.sku, product_master: master ?? null, alias_match: aliasMatched, alias_match_sku: aliasSku || null, alias_match_method: aliasMatched ? 'product_map_master' : null, audit_status, raw_display: raw || 'ไม่มีคำดิบ', mapped_display: mapped || 'ยังไม่มีชื่อมาตรฐาน' };
+    return { ...item, sku: sku || item.sku, product_master: master ?? null, alias_match: aliasMatched, alias_match_sku: aliasSku || null, alias_match_method: aliasMatched ? 'product_map_master' : null, audit_status, raw_display: raw || 'ไม่มีคำดิบ', mapped_display: mapped || 'ยังไม่มีชื่อมาตรฐาน', stock_qty: stockQty, available_qty: availableQty, stock_status: stockStatus, unit_price: unitPrice, price_mismatch: priceMismatch, store_code: item.store_code ?? master?.store_code ?? camp };
   }).filter((item: AlienReviewItem) => !query || JSON.stringify(item).toLowerCase().includes(query));
 }

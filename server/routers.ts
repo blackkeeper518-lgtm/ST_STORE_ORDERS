@@ -2,7 +2,7 @@ import { z } from "zod";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
 import { COOKIE_NAME } from "../shared/const";
 import { sdk } from "./_core/sdk";
-import { createCanonicalAlias, fetchConversationEvidence, fetchDailyChatOrderSummary, fetchDailyOrderHistory, fetchExternalChatMessages, fetchLiveOrders, fetchLiveThreads, fetchStockProducts, fetchStockWarnings, getLiveOrderStats, listCanonicalAliases, supabaseGet, supabasePost, updateCanonicalAlias, updateProductMapAlias, updateStockProduct, type LiveOrder, type StockProduct } from "./supabase";
+import { createCanonicalAlias, createProductAlienMapReview, createProductAlienTerm, fetchConversationEvidence, fetchDailyChatOrderSummary, fetchDailyOrderHistory, fetchExternalChatMessages, fetchLiveOrders, fetchLiveThreads, fetchStockProducts, fetchStockWarnings, getLiveOrderStats, listCanonicalAliases, listProductAlienMapReviews, listProductAlienTerms, supabaseGet, supabasePost, updateCanonicalAlias, updateProductMapAlias, updateStockProduct, type LiveOrder, type StockProduct } from "./supabase";
 import { sendMetaMessage } from "./meta";
 import { storagePut } from "./storage";
 import * as db from "./db";
@@ -50,6 +50,12 @@ export const appRouter = router({
     updateAlias: publicProcedure.input(z.object({ sku: z.string(), alias: z.string() })).mutation(({ input }) => updateProductMapAlias(input.sku, input.alias)),
   }),
 
+  productAlien: router({
+    terms: publicProcedure.input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listProductAlienTerms(input?.search ?? "")),
+    saveTerm: publicProcedure.input(z.record(z.string(), z.unknown())).mutation(({ input }) => createProductAlienTerm(input)),
+    reviews: publicProcedure.query(() => listProductAlienMapReviews()),
+    saveReview: publicProcedure.input(z.record(z.string(), z.unknown())).mutation(({ input }) => createProductAlienMapReview(input)),
+  }),
   productAliases: router({
     list: publicProcedure.query(async () => (await listCanonicalAliases()).map(row => ({ id: Number(row.id), alias: String(row.alias_text ?? ""), canonicalSku: String(row.sku ?? ""), canonicalLabel: String(row.product_name ?? row.note ?? ""), isActive: row.mapping_status === "APPROVED" }))),
     catalog: publicProcedure.query(() => fetchStockProducts()),
