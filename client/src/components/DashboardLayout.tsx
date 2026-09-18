@@ -51,6 +51,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
   const [notifications, setNotifications] = useState<Array<{ key: string; title: string; detail: string; time: string | null; seen: boolean }>>([]);
   const [unreadThreads, setUnreadThreads] = useState<Array<{ key: string; latestAt: string | null; customerName: string | null }>>([]);
   const lastNotificationKeyRef = useRef("");
+  const [camp, setCamp] = useState<Camp>(getActiveCamp());
   useEffect(() => {
     let cancelled = false;
     const loadNotifications = async () => {
@@ -78,7 +79,6 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
   }, [camp]);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
-  const [camp, setCamp] = useState<Camp>(getActiveCamp());
   const [now, setNow] = useState(() => new Date());
   const thaiDateTime = new Intl.DateTimeFormat("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" }).format(now);
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
