@@ -1,100 +1,35 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getActiveCamp, readCanonicalOrders } from "@/lib/canonical";
-import { Clipboard, Eye, RefreshCw, Send } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { getActiveCamp, getSupabase, readCanonicalOrders } from "@/lib/canonical";
+import { Crosshair, Edit3, Flame, MousePointer2, Radio, Save, Send, Skull, Target, Zap } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-const DEFAULT_HEADER = "🚀 [บิลสมบูรณ์ - READY]";
+function text(row: any, keys: string[]) { for (const k of keys) if (row?.[k] != null && String(row[k]).trim()) return String(row[k]).trim(); return ""; }
+function product(row: any) { return text(row, ["alien_display_with_quantity", "display_for_packer", "master_display_for_packer", "product_display_for_packer", "product_name", "th_name", "sku", "raw_text"]); }
+function province(row: any) { return text(row, ["province", "master_delivery_address", "full_address", "addressclean"]).replace(/^.*?จ[.จังหวัด\s]*/, "").split(/\s+/).slice(-2).join(" ") || "ไม่ระบุจังหวัด"; }
+function isBot(row: any) { const evidence = text(row, ["alien_display_with_quantity", "master_display_for_packer", "product_display_for_packer", "product_name", "th_name", "sku", "raw_product_evidence", "product_evidence", "normalized_chat_timeline", "chat_timeline"]); const phone = text(row, ["phone", "extracted_phone", "master_customer_phone"]); const address = text(row, ["master_delivery_address", "full_address", "addressclean", "address_display_packer"]); return !evidence || (!phone && !address); }
 
-function alreadySent(row: Record<string, any>) {
-  const value = String(row.telegram_status ?? "").trim().toLowerCase();
-  return value === "1" || value === "sent" || value === "delivered" || value === "ไปแล้วไปลับ" || row.telegram_sent === true;
-}
-
-function productOf(row: Record<string, any>) {
-  const master = String(row.master_display_for_packer ?? "").trim();
-  const quantity = String(row.master_qty ?? "").trim();
-  return [master, quantity && `${quantity} คอต`].filter(Boolean).join(" ");
-}
-
-function addressOf(row: Record<string, any>) {
-  return row.master_delivery_address || "";
-}
-
-function telegramText(row: Record<string, any>, header: string) {
-  const customer = row.master_customer_name || row.facebook_name || "";
-  const phone = row.master_customer_phone || "";
-  const orderNumber = row.order_number_display || "";
-  const orderTime = row.order_time_display || "";
-  const cod = row.cod_amount;
-  const stockNotice = String(row.alien_out_of_stock_notices ?? "").trim();
-  return [
-    stockNotice || header,
-    "━━━━━━━━━━━━━━━━━━━━",
-    orderTime && `⏰ ${orderTime}`,
-    orderNumber && `🆔 ${orderNumber}`,
-    row.page_name && `📢 ${row.page_name}`,
-    customer && `👤 ${customer}`,
-    cod != null && `💰 COD: ${cod} บาท`,
-    "━━━━━━━━━━━━━━━━━━━━",
-    customer,
-    phone,
-    addressOf(row) && `📍 ${addressOf(row)}`,
-    "━━━━━━━━━━━━━━━━━━━━",
-    "📦 รายการสินค้าสำหรับจัดของ:",
-    productOf(row),
-  ].filter(Boolean).join("\n");
-}
-
-export default function TelegramDeliveryRoom() {
-  const [header, setHeader] = useState(DEFAULT_HEADER);
-  const [selected, setSelected] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const query = useQuery({
-    queryKey: ["telegram-delivery-room", getActiveCamp()],
-    queryFn: () => readCanonicalOrders(""),
-    refetchInterval: 180_000,
-  });
-  const allOrders = query.data?.orders ?? [];
-  const waiting = useMemo(() => allOrders.filter((row: any) => !alreadySent(row)), [allOrders]);
-  const order = waiting[selected] as Record<string, any> | undefined;
-  const message = useMemo(() => order ? telegramText(order, header || DEFAULT_HEADER) : "คิวว่าง — ไม่มีออเดอร์รอส่ง", [order, header]);
-
-  useEffect(() => {
-    if (selected >= waiting.length && waiting.length > 0) setSelected(waiting.length - 1);
-    if (waiting.length === 0) setSelected(0);
-  }, [selected, waiting.length]);
-
-  async function copyMessage() {
-    if (!order) return;
-    await navigator.clipboard?.writeText(message);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  }
-
-  return <div className="min-h-full space-y-5 text-white">
-    <header className="rounded-3xl border border-orange-400/20 bg-[#100c0a] p-6 shadow-2xl shadow-orange-950/20">
-      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-300"><Send className="mr-2 inline h-4 w-4" />TELEGRAM DELIVERY · {getActiveCamp()}</p>
-      <h1 className="mt-3 text-3xl font-semibold">ห้องส่ง Telegram</h1>
-      <p className="mt-2 text-sm leading-6 text-orange-100/60">สถานะ 1 = ส่งแล้ว • ส่งแล้วไม่กลับเข้าคิว • เช็กข้อมูลใหม่ทุก 3 นาที</p>
-    </header>
-
-    <div className="rounded-2xl border border-orange-400/15 bg-[#100d0b] p-4 text-xs leading-6 text-orange-100/65">
-      <b className="text-orange-200">กฎห้อง Telegram</b> · อ่านจาก View หลักเท่านั้น · หัวบิลใช้เลข `order_number_display` และเวลา `order_time_display` · ลูกค้า/เบอร์/ที่อยู่ใช้ Master · สินค้าใช้ `master_display_for_packer + master_qty + คอต` · ถ้ามี `alien_out_of_stock_notices` ให้ขึ้นแทนหัวบิล · สถานะ `1` ส่งแล้วและตัดออกจากคิว
-    </div>
-
-    <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
-      <Card className="rounded-3xl border-orange-400/15 bg-[#100d0b]"><CardHeader><CardTitle className="text-base text-orange-100">คิวรอส่ง</CardTitle></CardHeader><CardContent className="space-y-4">
-        <Input value={header} onChange={(event) => setHeader(event.target.value)} className="border-orange-400/20 bg-black/40 text-orange-100" />
-        <div className="flex items-center justify-between text-xs text-orange-100/55"><span>รอส่ง {waiting.length} · ส่งแล้ว {allOrders.length - waiting.length}</span><Button size="sm" variant="outline" onClick={() => query.refetch()} className="border-orange-400/20 text-orange-200"><RefreshCw className="mr-1 h-3.5 w-3.5" />รีเฟรช</Button></div>
-        <div className="max-h-[540px] space-y-2 overflow-auto">
-          {waiting.length === 0 ? <div className="rounded-2xl border border-dashed border-orange-400/20 p-6 text-center text-sm text-orange-100/55">คิวว่างแล้ว</div> : waiting.map((item: any, index: number) => <button type="button" key={item.upsert_key || item.order_number || item.id || index} onClick={() => setSelected(index)} className={`w-full rounded-xl border p-3 text-left ${index === selected ? "border-orange-300/60 bg-orange-500/15" : "border-white/10 bg-black/20 hover:border-orange-400/30"}`}><div className="flex justify-between gap-2"><span className="font-mono text-xs text-orange-100">{item.order_number || item.upsert_key || `#${item.id ?? "?"}`}</span><span className="text-[10px] text-orange-100/45">{item.cod_amount ?? "COD ?"}</span></div><p className="mt-2 truncate text-xs text-orange-100/60">{productOf(item)}</p><p className="mt-1 text-[10px] text-amber-200">รอส่ง</p></button>)}
-        </div>
-      </CardContent></Card>
-
-      <Card className="rounded-3xl border-orange-400/15 bg-[#100d0b]"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle className="flex items-center gap-2 text-base text-orange-100"><Eye className="h-4 w-4 text-orange-300" />ตัวอย่างข้อความ</CardTitle><Button onClick={copyMessage} disabled={!order} className="bg-orange-600 text-white hover:bg-orange-500"><Clipboard className="mr-2 h-4 w-4" />{copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}</Button></div></CardHeader><CardContent><pre className="min-h-[540px] whitespace-pre-wrap rounded-2xl border border-orange-400/15 bg-black/50 p-5 text-sm leading-7 text-orange-50">{message}</pre><p className="mt-4 text-xs text-orange-100/50">ตัวส่งภายนอกเป็นผู้เขียนสถานะ <b className="text-orange-200">telegram_status = 1</b> หลังส่งสำเร็จ ห้องจะไม่ดึงรายการนี้กลับมาอีก</p></CardContent></Card>
-    </div>
+export default function DraksideMarketing() {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dragging, setDragging] = useState(false);
+  const [note, setNote] = useState("");
+  const [label, setLabel] = useState("⚡ ตรวจแล้วโดย Drakside");
+  const query = useQuery({ queryKey: ["drakside-marketing", getActiveCamp()], queryFn: () => readCanonicalOrders(""), refetchInterval: 30000 });
+  const orders = query.data?.orders ?? [];
+  const stats = useMemo(() => { const real = orders.filter((o: any) => !isBot(o)); const bot = orders.filter((o: any) => isBot(o)); return { real, bot }; }, [orders]);
+  const provinces = useMemo(() => { const map = new Map<string, { real: number; bot: number }>(); for (const o of orders as any[]) { const p = province(o); const v = map.get(p) ?? { real: 0, bot: 0 }; isBot(o) ? v.bot++ : v.real++; map.set(p, v); } return Array.from(map.entries()).sort((a, b) => (b[1].real + b[1].bot) - (a[1].real + a[1].bot)); }, [orders]);
+  const toggle = (id: string) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const mark = (id: string) => { if (!dragging) toggle(id); };
+  const save = async () => { const api = getSupabase(); if (!api || !selected.size) return; const table = getActiveCamp() === "ST" ? "st_orders" : "bb_orders"; const keys = Array.from(selected); const { error } = await api.from(table).update({ drakside_label: label, admin_note: note, bot_classification: "REVIEWED", marketing_reviewed_at: new Date().toISOString(), marketing_reviewed_by: "DRAKSIDE_MARKETING" }).in("upsert_key", keys); if (error) toast.error(error.message); else { toast.success(`บันทึก ${keys.length} ออเดอร์แล้ว`); void query.refetch(); } };
+  return <div className="min-h-full space-y-5 text-white" onPointerUp={() => setDragging(false)}>
+    <header className="rounded-3xl border border-orange-400/30 bg-[#110805] p-6 shadow-2xl shadow-orange-950/30"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.28em] text-orange-300"><Radio className="mr-2 inline h-4 w-4" />DRAKSIDE MARKETING CONTROL</p><h1 className="mt-3 text-3xl font-black tracking-tight">Dashboard จริง vs ขยะ COD</h1><p className="mt-2 text-sm text-orange-100/60">เลเซอร์ออนเต็มขั้น · รับ COD ทุกใบ · สินค้าก่อน COD · ลากเมาส์เลือกคิวเพื่อแก้ป้าย/เตรียมยิง</p></div><div className="flex items-center gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200"><Skull className="h-5 w-5" /><span className="text-xs">COD ทุกออเดอร์เข้าระบบ · แยกไว้ดูเล่นเท่านั้น</span></div></div></header>
+    <div className="grid gap-4 md:grid-cols-4"><Card className="border-orange-400/20 bg-[#100b08]"><CardContent className="p-4"><p className="text-3xl font-black text-emerald-300">{stats.real.length}</p><p className="text-xs text-orange-100/50">ออเดอร์จริง</p></CardContent></Card><Card className="border-red-400/20 bg-[#100908]"><CardContent className="p-4"><p className="text-3xl font-black text-red-300">{stats.bot.length}</p><p className="text-xs text-orange-100/50">บอท COD ที่จับได้</p></CardContent></Card><Card className="border-orange-400/20 bg-[#100b08]"><CardContent className="p-4"><p className="text-3xl font-black text-orange-300">{orders.length}</p><p className="text-xs text-orange-100/50">ทั้งหมดที่อ่านได้</p></CardContent></Card><Card className="border-amber-400/20 bg-[#100b08]"><CardContent className="p-4"><p className="text-3xl font-black text-amber-300">{selected.size}</p><p className="text-xs text-orange-100/50">คิวที่เลือก</p></CardContent></Card></div>
+    <div className="grid gap-5 xl:grid-cols-[1fr_380px]"><Card className="border-orange-400/20 bg-[#100b08]"><CardHeader><CardTitle className="flex items-center gap-2 text-base text-orange-100"><Target className="h-4 w-4 text-orange-300" />สรุปแยกตามจังหวัด</CardTitle></CardHeader><CardContent><div className="overflow-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="border-b border-orange-400/10 text-orange-100/40"><tr><th className="p-3">จังหวัด</th><th className="p-3 text-emerald-300">จริง</th><th className="p-3 text-red-300">ขยะ COD</th><th className="p-3">รวม</th></tr></thead><tbody>{provinces.map(([p, v]) => <tr key={p} className="border-b border-orange-400/[0.06]"><td className="p-3 text-orange-100">{p}</td><td className="p-3 text-emerald-300">{v.real}</td><td className="p-3 text-red-300">{v.bot}</td><td className="p-3 text-orange-200">{v.real + v.bot}</td></tr>)}</tbody></table></div></CardContent></Card>
+    <Card className="border-orange-400/20 bg-[#100b08]"><CardHeader><CardTitle className="flex items-center gap-2 text-base text-orange-100"><Edit3 className="h-4 w-4 text-orange-300" />ป้าย / โน้ตสายดาร์ก</CardTitle></CardHeader><CardContent className="space-y-3"><Input value={label} onChange={e => setLabel(e.target.value)} className="border-orange-400/20 bg-black/40 text-orange-100" placeholder="ข้อความบนป้าย" /><textarea value={note} onChange={e => setNote(e.target.value)} className="min-h-24 w-full rounded-xl border border-orange-400/20 bg-black/40 p-3 text-sm text-orange-100 outline-none" placeholder="โน้ตแอดมิน เช่น สินค้าชื่อคาเวโร่ บ้านเทอหรอ 555555" /><Button onClick={save} disabled={!selected.size} className="w-full bg-orange-600 text-white hover:bg-orange-500"><Save className="mr-2 h-4 w-4" />บันทึกป้ายและโน้ต ({selected.size})</Button><Button disabled={!selected.size} variant="outline" className="w-full border-red-400/30 text-red-200"><Zap className="mr-2 h-4 w-4" />ยิงคิวที่เลือก (เตรียมไว้)</Button></CardContent></Card></div>
+    <Card className="border-orange-400/20 bg-[#100b08]" onPointerDown={() => setDragging(true)}><CardHeader><CardTitle className="flex items-center gap-2 text-base text-orange-100"><MousePointer2 className="h-4 w-4 text-orange-300" />ลากเมาส์เลือกออเดอร์ <Badge className="border-orange-300/20 bg-orange-500/10 text-orange-200">{selected.size} selected</Badge></CardTitle></CardHeader><CardContent><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{orders.map((o: any, i: number) => { const id = String(o.upsert_key || o.order_number || o.id || i); const bot = isBot(o); return <button type="button" key={id} onPointerEnter={() => dragging && setSelected(prev => new Set(prev).add(id))} onClick={() => mark(id)} className={`rounded-2xl border p-3 text-left transition ${selected.has(id) ? "border-orange-300 bg-orange-500/20 shadow-[0_0_18px_rgba(249,115,22,.25)]" : bot ? "border-red-500/15 bg-red-950/10" : "border-emerald-500/15 bg-emerald-950/10"}`}><div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-orange-100">{o.order_number || id}</span><Badge className={bot ? "border-red-400/20 bg-red-500/10 text-red-300" : "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"}>{bot ? "BOT COD · ไม่กัน" : "REAL"}</Badge></div><p className="mt-2 truncate text-xs text-orange-100/60">{product(o) || "ไม่มีสินค้า — ตรวจแชทก่อน"}</p><p className="mt-1 text-[10px] text-orange-100/35">{o.cod_amount ?? "COD ?"} · {province(o)}</p></button>; })}</div></CardContent></Card>
   </div>;
 }
