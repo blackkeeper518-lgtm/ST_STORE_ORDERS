@@ -57,6 +57,7 @@ function provinceOf(row: OrderRow) {
 function telegramText(row: OrderRow, header: string) {
   const customer = row.master_customer_name || row.customer_name || row.facebook_name || "";
   const phone = row.master_customer_phone || row.phone || row.extracted_phone || "";
+  const cod = row.cod_amount ?? row.expected_cod ?? row.total_cod;
   const orderNumber = row.order_number_display || row.order_number || "";
   const time = row.order_time_display || "";
   return [
@@ -66,6 +67,7 @@ function telegramText(row: OrderRow, header: string) {
     orderNumber && `🆔 เลขออเดอร์ : ${orderNumber}`,
     row.page_name && `📢 PAGE : ${row.page_name}`,
     customer && `👤 FB : ${customer}`,
+    cod !== null && cod !== undefined && cod !== "" && `💰 ยอด COD : ${cod} บาท`,
     "━━━━━━━━━━━━━━━━━━━━",
     customer,
     phone,
