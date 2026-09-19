@@ -35,15 +35,23 @@ function productOf(row: OrderRow) {
   return String(row.alien_display_with_quantity || row.master_display_for_packer || row.display_for_packer || row.items_text || row.product_name || row.sku || "ยังไม่มีข้อมูลสินค้า").trim();
 }
 
+function evidenceText(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(evidenceText).filter(Boolean).join("\n");
+  if (typeof value === "object") return Object.entries(value as Record<string, unknown>).map(([key, item]) => `${key}: ${evidenceText(item)}`).join("\n");
+  return String(value);
+}
+
 function cleanEvidence(row: OrderRow) {
-  return String(row.product_evidence || row.raw_product_evidence || row.raw_text_with_phone_timed || row.raw_text_with_phone || row.raw_text || row.source_text || row.single_cleaned_block || "ไม่พบแชทต้นทางในแถวนี้").trim();
+  return evidenceText(row.normalized_chat_timeline) || evidenceText(row.product_evidence) || evidenceText(row.raw_product_evidence) || evidenceText(row.raw_text_with_phone_timed) || evidenceText(row.raw_text_with_phone) || evidenceText(row.raw_text) || evidenceText(row.source_text) || evidenceText(row.single_cleaned_block) || "ไม่พบแชทต้นทางในแถวนี้";
 }
 
 function laneOf(row: OrderRow) {
   const text = `${row.sku || ""} ${row.product_name || ""} ${row.th_name || ""} ${productOf(row)}`.toLowerCase();
-  if (/green|เขียว|cool|เย็น|mond_green/.test(text)) return { label: "สายเย็น", emoji: "🟢", tone: "border-lime-300/70 bg-lime-400/15 text-lime-200 shadow-[0_0_24px_rgba(132,255,90,.28)]" };
-  if (/red|ร้อน|hot|เผ็ด|mond_red/.test(text)) return { label: "สายร้อน", emoji: "🔴", tone: "border-red-300/70 bg-red-500/15 text-red-200 shadow-[0_0_24px_rgba(255,60,60,.3)]" };
-  return { label: "สายผลไม้", emoji: "🍓", tone: "border-pink-300/70 bg-pink-500/15 text-pink-200 shadow-[0_0_24px_rgba(255,70,180,.28)]" };
+  if (/green|เขียว|cool|เย็น|mond_green/.test(text)) return { label: "โซนเย็น", mark: "ICE", tone: "border-cyan-300/70 bg-cyan-400/15 text-cyan-100 shadow-[0_0_24px_rgba(40,220,255,.28)]" };
+  if (/red|ร้อน|hot|เผ็ด|mond_red/.test(text)) return { label: "โซนร้อน", mark: "HEAT", tone: "border-amber-300/70 bg-amber-400/15 text-amber-100 shadow-[0_0_24px_rgba(255,170,40,.3)]" };
+  return { label: "โซนผลไม้", mark: "FRESH", tone: "border-fuchsia-300/70 bg-fuchsia-500/15 text-fuchsia-100 shadow-[0_0_24px_rgba(255,70,180,.28)]" };
 }
 
 function addressOf(row: OrderRow) {
@@ -61,7 +69,7 @@ function telegramText(row: OrderRow, header: string) {
   const orderNumber = row.order_number_display || row.order_number || "";
   const time = row.order_time_display || "";
   return [
-    row.telegram_header || row.product_header || header,
+    row.telegram_header || row.product_header || row.bill_header || header,
     "━━━━━━━━━━━━━━━━━━━━",
     time && `⏰ วันที่สั่งซื้อ : ${time}`,
     orderNumber && `🆔 เลขออเดอร์ : ${orderNumber}`,
@@ -132,7 +140,7 @@ export default function TelegramDeliveryRoom() {
   const selectedIssues = order ? issueOf(order) : [];
   const selectedWarnings = order ? warningOf(order) : [];
   const warningCount = waiting.reduce((sum, row) => sum + warningOf(row).length, 0);
-  const lane = order ? laneOf(order) : { label: "ยังไม่เลือกสาย", emoji: "⚡", tone: "border-cyan-300/50 bg-cyan-400/10 text-cyan-200" };
+  const lane = order ? laneOf(order) : { label: "ยังไม่เลือกโซน", mark: "WAIT", tone: "border-cyan-300/50 bg-cyan-400/10 text-cyan-200" };
 
   const provinceSummary = useMemo(() => {
     const map = new Map<string, number>();
@@ -182,7 +190,7 @@ export default function TelegramDeliveryRoom() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className={`rounded-2xl border-2 px-4 py-3 text-center ${lane.tone}`}><p className="text-[10px] uppercase tracking-[0.22em] opacity-70">PRODUCT LANE</p><p className="mt-1 text-xl font-black">{lane.emoji} {lane.label}</p></div>
+        <div className={`rounded-2xl border-2 px-4 py-3 text-center ${lane.tone}`}><p className="text-[10px] uppercase tracking-[0.22em] opacity-70">PACKING ZONE</p><p className="mt-1 text-xl font-black">▣ {lane.label}</p><p className="mt-1 text-[10px] font-bold tracking-[0.28em] opacity-70">{lane.mark}</p></div>
         <div className={`rounded-2xl border-2 px-4 py-3 text-center ${order ? deliveryStatus(order).tone : "border-amber-300/40 bg-amber-400/10 text-amber-200"}`}><p className="text-[10px] uppercase tracking-[0.22em] opacity-70">DELIVERY STATUS</p><p className="mt-1 text-xl font-black">{order ? deliveryStatus(order).label : "รอเลือกออเดอร์"}</p></div>
         <div className="rounded-2xl border-2 border-cyan-300/50 bg-cyan-400/10 px-4 py-3 text-center text-cyan-100 shadow-[0_0_24px_rgba(40,220,255,.2)]"><p className="text-[10px] uppercase tracking-[0.22em] opacity-70">COD</p><p className="mt-1 text-xl font-black">{order?.cod_amount != null ? `${order.cod_amount} บาท` : "ไม่ระบุ"}</p></div>
       </div>
