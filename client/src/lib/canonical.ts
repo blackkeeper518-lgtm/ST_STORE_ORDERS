@@ -1,8 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const CONFIG_KEY = "bb-supabase-config";
+const CONFIG_KEY = "st-supabase-config";
 export type Camp = "BB" | "ST" | "SB";
-const DEPLOYMENT_CAMP: Camp = "BB";
+const DEPLOYMENT_CAMP: Camp = "ST";
 export type SupabaseConfig = { url: string; anonKey: string; orderTable?: string };
 let client: SupabaseClient | null = null;
 let clientSignature = "";
@@ -15,7 +15,7 @@ export function getSupabaseConfig(camp: Camp = getActiveCamp()): SupabaseConfig 
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<SupabaseConfig>;
     if (!value.url || !value.anonKey) return null;
-    return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey, orderTable: value.orderTable || "vw_bb_orders_all_v2" };
+    return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey, orderTable: value.orderTable || "vw_st_orders_all_v2" };
   } catch { return null; }
 }
 export function saveSupabaseConfig(config: SupabaseConfig, camp: Camp = getActiveCamp()) { const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), orderTable: config.orderTable?.trim() || defaultOrderView(camp) }; localStorage.setItem(profileKey(camp), JSON.stringify(clean)); client = null; clientSignature = ""; }
@@ -210,17 +210,48 @@ export async function readStockProducts(): Promise<StockProduct[]> {
   const [{ data: products, error }, { data: inventory, error: inventoryError }, { data: mapRows, error: mapError }] = await Promise.all([
     api.from("product_master").select("*").order("sku"),
     api.from("inventory").select("*"),
-    api.from("product_map_master").select("sku,alias,alias_text,alias_norm")
+    api.from("product_map_master").select("sku,alias,alias_text,alias_norm"),
   ]);
   if (error) fail(error);
-  if (inventoryError) fail(inventoryError);
+
+  // Inventory is optional for display: never hide Product Master rows if RLS/schema
+  // temporarily prevents reading inventory. Join by every key used by old/new schemas.
+  const inventoryRows = inventoryError ? [] : (inventory ?? []);
   const aliasBySku = new Map<string, string[]>();
-  if (!mapError) for (const row of mapRows ?? []) { const sku = String(row.sku ?? "").trim().toLowerCase(); const values = [row.alias, row.alias_text, row.alias_norm].flatMap(value => String(value ?? "").split(/[,\n|]+/)).map(value => value.trim()).filter(Boolean); if (sku && values.length) aliasBySku.set(sku, Array.from(new Set([...(aliasBySku.get(sku) ?? []), ...values]))); }
+  if (!mapError) for (const row of mapRows ?? []) {
+    const sku = String(row.sku ?? "").trim().toLowerCase();
+    const values = [row.alias, row.alias_text, row.alias_norm].flatMap(value => String(value ?? "").split(/[,\n|]+/)).map(value => value.trim()).filter(Boolean);
+    if (sku && values.length) aliasBySku.set(sku, Array.from(new Set([...(aliasBySku.get(sku) ?? []), ...values])));
+  }
   const entries: Array<[string, any]> = [];
-  for (const row of inventory ?? []) { if (row.product_id != null) entries.push([String(row.product_id), row]); if (row.sku) entries.push([String(row.sku).trim().toLowerCase(), row]); }
+  for (const row of inventoryRows) {
+    if (row.product_id != null) entries.push([`id:${String(row.product_id)}`, row]);
+    for (const key of [row.sku, row.master_sku]) {
+      if (key != null && String(key).trim()) entries.push([`sku:${String(key).trim().toLowerCase()}`, row]);
+    }
+  }
   const inv = new Map<string, any>(entries);
-  return (products ?? []).map((p: any) => { const sku = String(p.sku ?? "").trim(); const i = inv.get(String(p.id)) ?? inv.get(sku.toLowerCase()); const aliases = aliasBySku.get(sku.toLowerCase()) ?? String(p.aliases ?? p.alias ?? "").split(/[,\n|]+/).map(value => value.trim()).filter(Boolean); return { id: Number(p.id), sku, label: p.label_display ?? p.display_for_packer ?? p.name_standard ?? sku ?? "", thName: p.th_name ?? p.product_name ?? p.name_standard ?? "", emoji: p.emoji ?? "📦", price: num(p.unit_price ?? p.price ?? p.cod_default), stockQty: num(i?.stock_qty ?? i?.quantity ?? p.stock_qty) ?? 0, stockStatus: i?.stock_status ?? p.stock_status ?? null, outOfStockJoke: p.out_of_stock_joke ?? null, stockNotice: p.stock_notice ?? null, aliases: Array.from(new Set(aliases)).join(", "), inventoryId: i?.id ?? null }; });
+  return (products ?? []).map((p: any) => {
+    const sku = String(p.sku ?? p.master_sku ?? "").trim();
+    const i = inv.get(`id:${String(p.id)}`) ?? inv.get(`sku:${sku.toLowerCase()}`);
+    const aliases = aliasBySku.get(sku.toLowerCase()) ?? String(p.aliases ?? p.alias ?? "").split(/[,\n|]+/).map(value => value.trim()).filter(Boolean);
+    return {
+      id: Number(p.id),
+      sku,
+      label: p.master_display_for_packer ?? p.label_display ?? p.display_for_packer ?? p.name_standard ?? sku ?? "",
+      thName: p.th_name ?? p.product_name ?? p.name_standard ?? "",
+      emoji: p.emoji ?? "📦",
+      price: num(p.unit_price ?? p.price ?? p.cod_default),
+      stockQty: num(i?.stock_qty ?? i?.quantity ?? p.stock_qty ?? p.available_qty) ?? 0,
+      stockStatus: i?.stock_status ?? p.stock_status ?? (Number(i?.stock_qty ?? p.stock_qty ?? 0) > 0 ? "IN_STOCK" : "OUT_OF_STOCK"),
+      outOfStockJoke: p.out_of_stock_joke ?? null,
+      stockNotice: p.stock_notice ?? null,
+      aliases: Array.from(new Set(aliases)).join(", "),
+      inventoryId: i?.id ?? null,
+    };
+  });
 }
+
 export async function updateInventoryStock(input: { productId: number; sku: string; stockQty: number; stockStatus?: "IN_STOCK" | "OUT_OF_STOCK" }) { const api = getSupabase(); if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" }); const stockQty = Math.max(0, Math.trunc(Number(input.stockQty) || 0)); const stockStatus = input.stockStatus ?? (stockQty > 0 ? "IN_STOCK" : "OUT_OF_STOCK"); const payload = { product_id: input.productId, sku: input.sku, stock_qty: stockQty, stock_status: stockStatus, updated_at: new Date().toISOString() }; const { data: existing, error: findError } = await api.from("inventory").select("id").eq("product_id", input.productId).maybeSingle(); if (findError) fail(findError); if (existing?.id != null) { const { error } = await api.from("inventory").update(payload).eq("id", existing.id); if (error) fail(error); } else { const { error } = await api.from("inventory").insert(payload); if (error) fail(error); } return { ...input, stockQty, stockStatus }; }
 export async function setInventoryAvailability(input: { productId: number; sku: string; available: boolean; currentQty: number }) { return updateInventoryStock({ ...input, stockQty: input.available ? Math.max(1, input.currentQty || 1) : 0, stockStatus: input.available ? "IN_STOCK" : "OUT_OF_STOCK" }); }
 export async function readDailyOrders(date: string, search = "") { const start = new Date(`${date}T00:00:00+07:00`).toISOString(); const result = await readCanonicalOrders(search, start); const orders = result.orders.filter((o: any) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(o.order_time ?? o.created_at ?? "")) === date); return { date, orders, total: orders.length }; }
@@ -265,11 +296,9 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
   if (!api) fail({ message: 'ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key' });
   const camp = getActiveCamp();
   const orderTable = camp === 'ST' ? 'st_orders' : camp === 'SB' ? 'sb_orders' : 'bb_orders';
-  const inspectorView = camp === 'BB' ? 'vw_bb_alien_master_center' : 'vw_product_alien_inspector';
+  const inspectorView = camp === 'ST' ? 'vw_st_alien_master_center' : 'vw_product_alien_inspector';
   const [ordersResult, masterResult, aliasResult, inventoryResult, inspectorResult] = await Promise.all([
     api.from(orderTable).select('*').order('updated_at', { ascending: false }).limit(1000),
-    // Read the existing tables without assuming a particular SKU column name.
-    // Some Supabase projects use master_sku/product_code instead of sku.
     api.from('product_master').select('*').limit(1500),
     api.from('product_map_master').select('*').limit(3000),
     api.from('inventory').select('*'),
@@ -278,27 +307,15 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
   if (ordersResult.error) fail(ordersResult.error);
   if (masterResult.error) fail(masterResult.error);
   if (aliasResult.error) fail(aliasResult.error);
-  // Inventory is supplementary. If the table is not connected yet or RLS
-  // hides it, keep the raw/master inspection alive and report STOCK_UNKNOWN.
 
-  const productKey = (row: any) => String(row.sku ?? row.master_sku ?? row.product_sku ?? row.product_code ?? row.code ?? '').trim();
-  // product_master is shared by BB and has no store_code column. Do not
-  // filter by a non-existent column, otherwise the Master/stock lookup is
-  // coupled to an unsupported schema.
-  const masters: any[] = masterResult.data ?? [];
+  const masters = masterResult.data ?? [];
   const bySku = new Map<string, any>(masters
-    .map((master: any): [string, any] => [productKey(master).toLowerCase(), master])
+    .map((master: any): [string, any] => [String(master.sku ?? master.master_sku ?? master.product_sku ?? master.product_code ?? master.code ?? '').trim().toLowerCase(), master])
     .filter(([key]) => Boolean(key)));
-  const inventoryByKey = new Map<string, any>();
-  for (const stock of inventoryResult.data ?? []) {
-    if (stock.product_id != null) inventoryByKey.set(`id:${String(stock.product_id)}`, stock);
-    const stockSku = productKey(stock).toLowerCase();
-    if (stockSku) inventoryByKey.set(`sku:${stockSku}`, stock);
-  }
   const normalize = (value: any) => String(value ?? '').toLowerCase().normalize('NFKC').replace(/[\s_\-.,:;|()[\]{}]+/g, '').trim();
   const aliasToSku = new Map<string, string>();
   for (const row of aliasResult.data ?? []) {
-    const sku = productKey(row);
+    const sku = String(row.sku ?? row.master_sku ?? row.product_sku ?? row.product_code ?? row.code ?? '').trim();
     if (!sku) continue;
     for (const value of [row.alias, row.alias_text, row.alias_norm].flatMap((v: any) => String(v ?? '').split(/[,\n|]+/)).map((v: string) => v.trim()).filter(Boolean)) {
       const key = normalize(value);
@@ -313,8 +330,6 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
     if (key) inspectorByKey.set(key, item);
   }
   return (ordersResult.data ?? []).map((sourceOrder: any) => {
-    // The order table remains the no-drop source. The inspector view only
-    // enriches it with verified Master/quantity/inventory fields.
     const order = { ...sourceOrder, ...(inspectorByKey.get(String(sourceOrder.upsert_key ?? sourceOrder.order_number ?? '').trim()) ?? {}) };
     const history = [
       ...(Array.isArray(order.normalized_chat_timeline) ? order.normalized_chat_timeline : []),
@@ -335,11 +350,7 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
     const sourceSku = String(order.sku ?? order.extracted_sku ?? '').trim();
     const resolvedSku = sourceSku || aliasSku;
     const master: any = bySku.get(resolvedSku.toLowerCase());
-    const inventory: any = master?.id != null
-      ? inventoryByKey.get(`id:${String(master.id)}`) ?? inventoryByKey.get(`sku:${resolvedSku.toLowerCase()}`)
-      : inventoryByKey.get(`sku:${resolvedSku.toLowerCase()}`);
-    // A matched display must be the prebuilt value from product_master only.
-    // Never fall back to an order field or compose/modify a display in Alien.
+    const stock: any = (inventoryResult.data ?? []).find((item: any) => item.product_id === master?.id || String(item.sku ?? '').toLowerCase() === resolvedSku.toLowerCase());
     const masterDisplay = String(master?.master_display_for_packer ?? '').trim();
     const hasRawEvidence = Boolean(raw && !/CHECK_SKU|ระบุสินค้าไม่ได้/i.test(raw));
     const mappingStatus = String(order.mapping_status ?? order.match_status ?? '').toUpperCase();
@@ -363,11 +374,9 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
       product_source: order.product_source ?? null,
       product_evidence: order.product_evidence ?? null,
       address_completeness: order.address_completeness ?? null,
-      // Inventory is the stock truth; product_master is only the product
-      // catalogue and display source.
-      stock_status: inventory?.stock_status ?? 'STOCK_UNKNOWN',
-      stock_qty: inventory?.stock_qty ?? inventory?.quantity ?? null,
-      available_qty: inventory?.stock_qty ?? inventory?.quantity ?? null,
+      stock_status: stock?.stock_status ?? 'STOCK_UNKNOWN',
+      stock_qty: stock?.stock_qty ?? stock?.quantity ?? null,
+      available_qty: stock?.stock_qty ?? stock?.quantity ?? null,
       unit_price: order.unit_price ?? master?.unit_price ?? null,
       price_mismatch: false,
     };
