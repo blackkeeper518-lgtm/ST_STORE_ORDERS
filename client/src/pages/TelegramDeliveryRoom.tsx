@@ -32,9 +32,8 @@ function displayTime(row: OrderRow) {
 }
 
 function productOf(row: OrderRow) {
-  const canonicalItems = Array.isArray(row.items) ? row.items : [];
-  const canonicalDisplay = canonicalItems.map((item: OrderRow) => item.master_display_for_packer || item.display_for_packer || item.label_display || item.master_sku || item.sku).filter(Boolean).join("\n");
-  return evidenceText(canonicalDisplay) || evidenceText(row.master_display_for_packer) || evidenceText(row.n8n_product_display) || evidenceText(row.single_cleaned_products) || evidenceText(row.items_text) || evidenceText(row.display_for_packer) || evidenceText(row.product_name) || evidenceText(row.sku) || "ยังไม่มีข้อมูลสินค้า";
+  // ห้อง Telegram อ่านออเดอร์จาก view กลาง: final display ก่อน และข้อความสกัดเป็น fallback เมื่อแมปไม่ติด
+  return evidenceText(row.final_display_for_packer) || evidenceText(row.single_cleaned_products) || evidenceText(row.single_cleaned_block) || "ยังไม่มีข้อมูลสินค้า";
 }
 
 function evidenceText(value: unknown): string {
@@ -65,9 +64,7 @@ function provinceOf(row: OrderRow) {
 }
 
 function telegramText(row: OrderRow, header: string) {
-  // Use the SQL-built canonical message when available; do not rebuild over it.
-  const dynamic = evidenceText(row.telegram_message_dynamic);
-  if (dynamic) return dynamic;
+  // สร้างข้อความจากออเดอร์ในห้องกลาง: final display ก่อน, single_cleaned_products เป็น fallback
   const customer = row.master_customer_name || row.customer_name || row.facebook_name || "";
   const phone = row.master_customer_phone || row.phone || row.extracted_phone || "";
   const cod = row.cod_amount ?? row.expected_cod ?? row.total_cod;
