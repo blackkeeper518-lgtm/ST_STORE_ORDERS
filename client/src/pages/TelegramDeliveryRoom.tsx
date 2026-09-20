@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getActiveCamp, readCanonicalOrders } from "@/lib/canonical";
+import { getActiveCamp, readTelegramDeliveryOrders } from "@/lib/canonical";
 import { AlertTriangle, CheckCircle2, Clipboard, Clock3, Eye, FileWarning, MessageSquareText, RefreshCw, Send, ShieldAlert, Sparkles, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -118,7 +118,7 @@ export default function TelegramDeliveryRoom() {
   const [sendMessage, setSendMessage] = useState("");
   const query = useQuery({
     queryKey: ["telegram-delivery-room", getActiveCamp()],
-    queryFn: () => readCanonicalOrders(search),
+    queryFn: () => readTelegramDeliveryOrders(search, "queue"),
     refetchInterval: 180_000,
   });
 
