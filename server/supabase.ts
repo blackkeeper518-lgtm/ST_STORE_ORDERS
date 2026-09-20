@@ -54,20 +54,6 @@ export async function updateStockProduct(id: number, input: { stockQty?: number;
 export async function updateProductMapAlias(sku: string, alias: string) { const products = await supabaseGet<Array<{ id: number }>>(`product_master?select=id&sku=eq.${encodeURIComponent(sku)}&limit=1`); const product = products[0]; if (!product) throw new Error(`SKU not found: ${sku}`); const { baseUrl, key } = config(); await fetch(`${baseUrl}/rest/v1/product_aliases`, { method: "POST", headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ product_id: product.id, alias_text: alias.trim(), alias_norm: alias.trim().toLowerCase(), mapping_status: "APPROVED" }) }); return { ok: true, sku, alias: alias.trim() }; }
 export async function fetchOrdersForThread(pageId: string, threadId: string) { return (await fetchLiveOrders()).filter(o => o.page_id === pageId && o.thread_id === threadId); }
 
-export type ProductAlienTerm = Record<string, unknown>;
-export async function listProductAlienTerms(search = "") {
-  const filter = search.trim() ? `&or=(raw_text.ilike.*${encodeURIComponent(search.trim())}*,alias_text.ilike.*${encodeURIComponent(search.trim())}*,order_number.ilike.*${encodeURIComponent(search.trim())}*)` : "";
-  return supabaseGet<ProductAlienTerm[]>(`product_alien_terms?select=*&order=created_at.desc&limit=500${filter}`);
-}
-export async function createProductAlienTerm(input: ProductAlienTerm) {
-  return supabasePost<ProductAlienTerm>("product_alien_terms", { ...input, raw_text: String(input.raw_text ?? ""), mapping_status: input.mapping_status ?? "REVIEW" });
-}
-export async function listProductAlienMapReviews() {
-  return supabaseGet<ProductAlienTerm[]>("product_alien_map_reviews?select=*&order=created_at.desc&limit=500");
-}
-export async function createProductAlienMapReview(input: ProductAlienTerm) {
-  return supabasePost<ProductAlienTerm>("product_alien_map_reviews", { ...input, raw_text: String(input.raw_text ?? ""), mapping_status: input.mapping_status ?? "REVIEW" });
-}
 export async function listCanonicalAliases() { return supabaseGet<Array<Record<string, unknown>>>("product_aliases?select=*&order=updated_at.desc&limit=10000"); }
 export async function createCanonicalAlias(input: { alias: string; canonicalSku: string; canonicalLabel: string }) { const products = await supabaseGet<Array<{ id: number }>>(`product_master?select=id&sku=eq.${encodeURIComponent(input.canonicalSku)}&limit=1`); const product = products[0]; if (!product) throw new Error(`SKU not found: ${input.canonicalSku}`); await supabasePost("product_aliases", { product_id: product.id, alias_text: input.alias.trim(), alias_norm: input.alias.trim().toLowerCase(), mapping_status: "APPROVED", note: input.canonicalLabel }); return listCanonicalAliases(); }
 export async function updateCanonicalAlias(input: { id: number; alias: string; canonicalSku: string; canonicalLabel: string; isActive?: boolean }) { const products = await supabaseGet<Array<{ id: number }>>(`product_master?select=id&sku=eq.${encodeURIComponent(input.canonicalSku)}&limit=1`); const { baseUrl, key } = config(); const body = { product_id: products[0]?.id ?? null, alias_text: input.alias.trim(), alias_norm: input.alias.trim().toLowerCase(), mapping_status: input.isActive === false ? "REJECTED" : "APPROVED", note: input.canonicalLabel }; await fetch(`${baseUrl}/rest/v1/product_aliases?id=eq.${input.id}`, { method: "PATCH", headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }); return listCanonicalAliases(); }

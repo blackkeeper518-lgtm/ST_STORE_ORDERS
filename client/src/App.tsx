@@ -16,8 +16,6 @@ import DailyChatSummary from "./pages/DailyChatSummary";
 import OrderHistory from "./pages/OrderHistory";
 import ConnectSupabase from "./pages/ConnectSupabase";
 import AlienRoom from "./pages/AlienRoom";
-import ProductAlienStore from "./pages/ProductAlienStore";
-import ProductAlienMap from "./pages/ProductAlienMap";
 import TelegramDeliveryRoom from "./pages/TelegramDeliveryRoom";
 import SecretGallery from "./pages/SecretGallery";
 import ParcelMapping from "./pages/ParcelMapping";
@@ -37,8 +35,6 @@ function Router() {
     <Route path="/parcel-mapping"><Shell><ParcelMapping /></Shell></Route>
     <Route path="/chats"><Shell><ChatHub /></Shell></Route>
     <Route path="/alien-room"><Shell><AlienRoom /></Shell></Route>
-    <Route path="/product-alien-store"><Shell><ProductAlienStore /></Shell></Route>
-    <Route path="/product-alien-map"><Shell><ProductAlienMap /></Shell></Route>
     <Route path="/telegram-delivery"><Shell><TelegramDeliveryRoom /></Shell></Route>
     <Route path="/aliases"><Shell><ProductAliases /></Shell></Route>
     <Route path="/order-performance"><Shell><OrderPerformance /></Shell></Route>
