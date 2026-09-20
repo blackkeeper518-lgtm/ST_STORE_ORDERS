@@ -13,10 +13,13 @@ export function getTelegramBody(row: TelegramDeliveryRow): TelegramBody | null {
 export function getTelegramChatId(row: TelegramDeliveryRow): string { const body = getTelegramBody(row); return String(body?.chat_id ?? row.telegram_chat_id ?? row.chat_id ?? "").trim(); }
 export function hasWebOverride(row: TelegramDeliveryRow): boolean { return row.telegram_message_source === "WEB_OVERRIDE" || row.telegram_message_dirty === true || Boolean(String(row.manual_telegram_text ?? "").trim()); }
 export function selectTelegramMessage(row: TelegramDeliveryRow, rebuiltText?: string | null): TelegramMessageSelection {
-  const body = getTelegramBody(row); const n8nText = String(body?.text ?? row.telegram_text ?? "").trim(); const overrideText = String(rebuiltText ?? row.manual_telegram_text ?? "").trim();
+  const body = getTelegramBody(row);
+  const dynamicText = String(row.telegram_message_dynamic ?? "").trim();
+  const overrideText = String(rebuiltText ?? row.manual_telegram_text ?? "").trim();
   if (hasWebOverride(row) && overrideText) return { text: overrideText, source: "WEB_OVERRIDE", dirty: true, body };
-  if (n8nText) return { text: n8nText, source: "N8N_PAYLOAD", dirty: false, body };
-  return { text: "ยังไม่มีข้อความ Telegram จาก n8n", source: "FALLBACK", dirty: false, body };
+  // The dressed SQL view is the source of truth. Raw n8n telegram text is audit-only.
+  if (dynamicText && !/\\n|\*\*/.test(dynamicText)) return { text: dynamicText, source: "CANONICAL_DYNAMIC", dirty: false, body };
+  return { text: "ยังไม่มีข้อความ Telegram แบบ dynamic จาก View", source: "FALLBACK", dirty: false, body };
 }
 export function buildTelegramSendPayload(row: TelegramDeliveryRow, selection: TelegramMessageSelection) {
   const body = selection.body ?? {}; const chatId = getTelegramChatId(row);
