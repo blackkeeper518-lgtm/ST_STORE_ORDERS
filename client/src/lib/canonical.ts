@@ -158,16 +158,6 @@ export async function readCanonicalOrders(search = "", since: string | null = nu
   orders.sort((a, b) => new Date(b.order_time || 0).getTime() - new Date(a.order_time || 0).getTime());
   return { orders, itemError, sourceTable, fetchedAt: new Date().toISOString(), since };
 }
-export async function readTelegramDeliveryOrders(search = "", room: "queue" | "today" | "yesterday_after_14" = "queue") {
-  const api = getSupabase();
-  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const sourceTable = room === "today" ? "vw_st_telegram_delivery_today_fast" : room === "yesterday_after_14" ? "vw_st_telegram_delivery_yesterday_after_14_fast" : "vw_st_telegram_delivery_queue_fast";
-  const { data, error } = await api.from(sourceTable).select("*").limit(1000);
-  if (error) fail(error);
-  const query = search.trim().toLowerCase();
-  const orders = (data ?? []).filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query)).sort((a: any, b: any) => new Date(b.source_time ?? b.order_time ?? 0).getTime() - new Date(a.source_time ?? a.order_time ?? 0).getTime());
-  return { orders, itemError: null, sourceTable, fetchedAt: new Date().toISOString(), room };
-}
 export type StockProduct = { id: number; sku: string; label: string; thName: string; emoji: string; price: number | null; stockQty: number; stockStatus: string | null; outOfStockJoke: string | null; stockNotice: string | null; aliases: string; inventoryId: number | string | null };
 export type ProductMapAlias = { id: string; alias: string; canonicalSku: string; canonicalLabel: string; isActive: boolean };
 
