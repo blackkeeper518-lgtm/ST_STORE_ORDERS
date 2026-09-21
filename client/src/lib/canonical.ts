@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const CONFIG_KEY = "st-supabase-config";
-export type Camp = "BB" | "ST" | "SB";
+export type Camp = "ST";
 const DEPLOYMENT_CAMP: Camp = "ST";
 export type SupabaseConfig = { url: string; anonKey: string; orderTable?: string };
 let client: SupabaseClient | null = null;
@@ -158,10 +158,10 @@ export async function readCanonicalOrders(search = "", since: string | null = nu
   orders.sort((a, b) => new Date(b.order_time || 0).getTime() - new Date(a.order_time || 0).getTime());
   return { orders, itemError, sourceTable, fetchedAt: new Date().toISOString(), since };
 }
-export async function readTelegramDeliveryOrders(search = "", room: "queue" | "today" | "yesterday_after_14" = "queue") {
+export async function readTelegramDeliveryOrders(search = "", room: "queue" | "today" | "yesterday_after_14" | "sent" = "queue") {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const sourceTable = room === "today" ? "vw_st_telegram_delivery_today_fast" : room === "yesterday_after_14" ? "vw_st_telegram_delivery_yesterday_after_14_fast" : "vw_st_telegram_delivery_queue_fast";
+  const sourceTable = room === "sent" ? "vw_st_telegram_delivery_source_fast" : room === "today" ? "vw_st_telegram_delivery_today_fast" : room === "yesterday_after_14" ? "vw_st_telegram_delivery_yesterday_after_14_fast" : "vw_st_telegram_delivery_queue_fast";
   const { data, error } = await api.from(sourceTable).select("*").limit(1000);
   if (error) fail(error);
   const query = search.trim().toLowerCase();

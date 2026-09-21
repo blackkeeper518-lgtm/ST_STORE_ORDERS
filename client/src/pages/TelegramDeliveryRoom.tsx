@@ -118,14 +118,15 @@ export default function TelegramDeliveryRoom() {
   const [showEvidence, setShowEvidence] = useState(true);
   const [search, setSearch] = useState("");
   const [sendMessage, setSendMessage] = useState("");
+  const [room, setRoom] = useState<"queue" | "sent">("queue");
   const query = useQuery({
-    queryKey: ["telegram-delivery-room", getActiveCamp()],
-    queryFn: () => readTelegramDeliveryOrders(search, "queue"),
+    queryKey: ["telegram-delivery-room", getActiveCamp(), room],
+    queryFn: () => readTelegramDeliveryOrders(search, room),
     refetchInterval: 180_000,
   });
 
   const allOrders = (query.data?.orders ?? []) as OrderRow[];
-  const waiting = useMemo(() => allOrders.filter((row) => !isSent(row)).sort((a, b) => new Date(realTime(b) || 0).getTime() - new Date(realTime(a) || 0).getTime()), [allOrders]);
+  const waiting = useMemo(() => allOrders.filter((row) => room === "sent" ? isSent(row) : !isSent(row)).sort((a, b) => new Date(realTime(b) || 0).getTime() - new Date(realTime(a) || 0).getTime()), [allOrders, room]);
   const order = waiting[selected];
   const message = useMemo(() => order ? telegramText(order, header || DEFAULT_HEADER) : "คิวว่าง — ไม่มีออเดอร์รอส่ง", [order, header]);
   const telegramSelection = useMemo(() => order ? ({ text: message, source: "CANONICAL_DYNAMIC" as const, dirty: false, body: getTelegramBody(order) }) : null, [order, message]);
@@ -152,6 +153,7 @@ export default function TelegramDeliveryRoom() {
   }
 
   async function sendCurrentOrder() {
+    if (room === "sent") { setSendMessage("รายการนี้ส่งแล้ว อยู่ในห้องประวัติ"); return; }
     if (!order || !telegramSelection || selectedWarnings.length > 0 || selectedIssues.length > 0) { setSendMessage("ยังส่งไม่ได้: กรุณาแก้คำเตือน/จุดต้องตรวจก่อน"); return; }
     setSendMessage("กำลังส่ง Telegram...");
     try {
@@ -196,7 +198,7 @@ export default function TelegramDeliveryRoom() {
       <div className="grid gap-5 xl:grid-cols-[350px_1fr]">
         <Card className="rounded-3xl border-orange-400/15 bg-[#100d0b]">
           <CardHeader className="space-y-3">
-            <div className="flex items-center justify-between"><CardTitle className="flex items-center gap-2 text-base text-orange-100"><Clock3 className="h-4 w-4 text-orange-300" />คิวตามเวลาจริง</CardTitle><Button size="sm" variant="outline" onClick={() => query.refetch()} className="border-orange-400/20 text-orange-200"><RefreshCw className="mr-1 h-3.5 w-3.5" />รีเฟรช</Button></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2 text-base text-orange-100"><Clock3 className="h-4 w-4 text-orange-300" />{room === "sent" ? "ประวัติส่งแล้ว" : "คิวตามเวลาจริง"}</CardTitle><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setRoom(room === "sent" ? "queue" : "sent")} className="border-cyan-400/20 text-cyan-200">{room === "sent" ? "กลับคิวรอส่ง" : "ประวัติส่งแล้ว"}</Button><Button size="sm" variant="outline" onClick={() => query.refetch()} className="border-orange-400/20 text-orange-200"><RefreshCw className={`mr-1 h-3.5 w-3.5 ${query.isFetching ? "animate-spin" : ""}`} />รีเฟรช</Button></div></div>
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหาเลขออเดอร์ / ลูกค้า / สินค้า" className="border-orange-400/20 bg-black/40 text-orange-100 placeholder:text-orange-100/30" />
             <div className="flex items-center justify-between text-xs text-orange-100/55"><span>แสดง {waiting.length} รายการ</span><span className="font-mono">ใหม่สุดอยู่บน</span></div>
           </CardHeader>

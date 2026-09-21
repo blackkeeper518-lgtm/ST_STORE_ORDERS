@@ -25,11 +25,11 @@ import { useLocation } from "wouter";
 function Shell({ children }: { children: React.ReactNode }) { return <DashboardLayout>{children}</DashboardLayout>; }
 function Router() {
   const [location] = useLocation();
-  const hasSupabaseConfig = Boolean(getSupabaseConfig("BB") || getSupabaseConfig("ST"));
+  const hasSupabaseConfig = Boolean(getSupabaseConfig());
   const setupExempt = location === "/connect" || location === "/secret-gallery";
   if (!hasSupabaseConfig && !setupExempt) return <Redirect to="/connect" />;
   return <Switch>
-    <Route path="/connect"><ConnectSupabase /></Route>
+    <Route path="/connect"><Redirect to="/secret-gallery" /></Route>
     <Route path="/secret-gallery"><SecretGallery /></Route>
     <Route path="/orders"><Shell><OrderControl /></Shell></Route>
     <Route path="/parcel-mapping"><Shell><ParcelMapping /></Shell></Route>
