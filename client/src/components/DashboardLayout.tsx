@@ -61,7 +61,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
         const next = rows.map((row) => {
           const key = String(row.upsert_key || row.order_number || row.id || "");
           const title = `ออเดอร์ใหม่ ${row.order_number || key}`;
-          const detail = String(row.alien_display_with_quantity || row.master_display_for_packer || row.display_for_packer || "ตรวจข้อมูลออเดอร์");
+          const detail = String(row.for_packer_st_display || row.single_cleaned_products || row.alien_display_with_quantity || row.master_display_for_packer || row.display_for_packer || "ตรวจข้อมูลออเดอร์");
           return { key, title, detail, time: row.order_time || row.order_time_display || null, seen: key === lastSeen || (lastSeen !== "" && key !== rows[0]?.upsert_key) };
         }).filter((item) => item.key);
         if (!cancelled) {
