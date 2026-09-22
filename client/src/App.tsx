@@ -41,10 +41,10 @@ function Router() {
     <Route path="/stock-room"><Shell><StockRoom /></Shell></Route>
     <Route path="/mapping-dashboard"><Shell><MappingDashboard /></Shell></Route>
     <Route path="/order-buckets"><Shell><OrderBuckets /></Shell></Route>
-    <Route path="/daily-chat-summary"><Shell><DailyChatSummary /></Shell></Route>
-    <Route path="/order-history"><Shell><OrderHistory /></Shell></Route>
-    <Route path="/"><Redirect to="/chats" /></Route>
-    <Route path="/404" component={NotFound} />
+	  <Route path="/daily-chat-summary"><Shell><DailyChatSummary /></Shell></Route>
+	  <Route path="/order-history"><Shell><OrderHistory /></Shell></Route>
+	  <Route path="/"><Redirect to="/orders" /></Route>
+	  <Route path="/404" component={NotFound} />
     <Route component={NotFound} />
   </Switch>;
 }
