@@ -75,14 +75,15 @@ html, body, #root { width: 100%; min-width: 320px; min-height: 100%; height: 100
 html, body { overflow-x: hidden; overflow-y: auto; }
 #root { min-height: 100dvh; }
 
-body {
+  body {
   @apply bg-background text-foreground;
   font-family: 'Noto Sans Thai', 'Space Grotesk', sans-serif;
   background-image:
-    radial-gradient(circle at 12% -4%, rgba(194, 65, 12, 0.18), transparent 32rem),
-    radial-gradient(circle at 96% 8%, rgba(251, 146, 60, 0.08), transparent 28rem),
-    linear-gradient(rgba(251, 146, 60, 0.028) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(251, 146, 60, 0.028) 1px, transparent 1px);
+    radial-gradient(circle at 50% 38%, rgba(255, 106, 0, 0.16), transparent 24rem),
+    radial-gradient(circle at 12% -4%, rgba(194, 65, 12, 0.24), transparent 32rem),
+    radial-gradient(circle at 96% 8%, rgba(251, 191, 36, 0.12), transparent 28rem),
+    linear-gradient(rgba(251, 146, 60, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251, 146, 60, 0.04) 1px, transparent 1px);
   background-size: auto, auto, 32px 32px, 32px 32px;
 }
 
@@ -99,8 +100,8 @@ body {
 @layer components {
   .container { width: 100%; margin-inline: auto; padding-inline: 1rem; }
   .flex { min-height: 0; min-width: 0; }
-  .cyber-glow { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.18), 0 0 28px rgba(194, 65, 12, 0.12), 0 18px 60px rgba(0, 0, 0, 0.42); }
-  .cyber-title { text-shadow: 0 0 18px rgba(249, 115, 22, 0.3); }
+  .cyber-glow { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.28), 0 0 22px rgba(255, 106, 0, 0.22), 0 0 72px rgba(194, 65, 12, 0.16), 0 18px 60px rgba(0, 0, 0, 0.48); }
+  .cyber-title { text-shadow: 0 0 8px rgba(255, 106, 0, 0.7), 0 0 24px rgba(249, 115, 22, 0.42); }
   .cyber-grid { background-image: linear-gradient(rgba(249, 115, 22, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(249, 115, 22, 0.055) 1px, transparent 1px); background-size: 24px 24px; }
   .neon-divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(249, 115, 22, 0.9), rgba(251, 191, 36, 0.62), transparent); }
 }

@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getActiveCamp, readTelegramDeliveryOrders } from "@/lib/canonical";
+import { readTelegramDeliveryOrders } from "@/lib/canonical";
 import { AlertTriangle, CheckCircle2, Clipboard, Clock3, Eye, FileWarning, MessageSquareText, RefreshCw, Send, ShieldAlert, Sparkles, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -120,7 +120,7 @@ export default function TelegramDeliveryRoom() {
   const [sendMessage, setSendMessage] = useState("");
   const [room, setRoom] = useState<"queue" | "sent">("queue");
   const query = useQuery({
-    queryKey: ["telegram-delivery-room", getActiveCamp(), room],
+    queryKey: ["telegram-delivery-room", "ST", room],
     queryFn: () => readTelegramDeliveryOrders(search, room),
     refetchInterval: 180_000,
   });
@@ -171,7 +171,7 @@ export default function TelegramDeliveryRoom() {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-300 to-transparent" />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-300"><Send className="mr-2 inline h-4 w-4" />TELEGRAM DELIVERY · {getActiveCamp()}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-300"><Send className="mr-2 inline h-4 w-4" />TELEGRAM DELIVERY · {"ST"}</p>
             <h1 className="cyber-title mt-3 text-3xl font-semibold">ห้องตรวจและส่ง Telegram</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-orange-100/60">ป้ายหัวบิลชัดเจน · สถานะส่งเด่น · เตือนสินค้าหมด ยอดไม่ครบ และที่อยู่ไม่ครบก่อนส่ง</p>
           </div>

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { getActiveCamp, readCanonicalOrders } from "@/lib/canonical";
+import { readCanonicalOrders } from "@/lib/canonical";
 import {
   AlertTriangle,
   CalendarDays,
@@ -143,7 +143,7 @@ export default function OrderControl() {
   const [flashBusinessCode, setFlashBusinessCode] = useState(() => localStorage.getItem("flash-business-code") || "");
   const [flashSaved, setFlashSaved] = useState(false);
   const [reviewOverrides, setReviewOverrides] = useState<Record<string, "PASSED" | "FAILED">>(() => {
-    try { return JSON.parse(localStorage.getItem(`order-review-${getActiveCamp()}`) || "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(`order-review-${"ST"}`) || "{}"); } catch { return {}; }
   });
   const querySince = dateFrom ? `${dateFrom}T00:00:00+07:00` : null;
   const queryUntil = dateTo ? `${dateTo}T23:59:59+07:00` : null;
@@ -179,7 +179,7 @@ export default function OrderControl() {
     const key = String(order.upsert_key || order.order_number);
     const next = { ...reviewOverrides, [key]: status };
     setReviewOverrides(next);
-    localStorage.setItem(`order-review-${getActiveCamp()}`, JSON.stringify(next));
+    localStorage.setItem(`order-review-${"ST"}`, JSON.stringify(next));
   };
   const orderWithReview = (order: any) => ({ ...order, review_status: reviewOverrides[String(order.upsert_key || order.order_number)] || order.review_status || null });
   const exportOrders = () => {
@@ -194,7 +194,7 @@ export default function OrderControl() {
     const csvCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""').replace(/\r?\n/g, " ")}"`;
     const csv = "\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a"); link.href = url; link.download = `${getActiveCamp().toLowerCase()}-orders-${dateFrom || dateTo || "filtered"}.csv`; link.click(); URL.revokeObjectURL(url);
+    const link = document.createElement("a"); link.href = url; link.download = `${"ST".toLowerCase()}-orders-${dateFrom || dateTo || "filtered"}.csv`; link.click(); URL.revokeObjectURL(url);
   };
   const selectedOrderWithReview = selectedOrder ? orderWithReview(selectedOrder) : null;
 
@@ -251,7 +251,7 @@ export default function OrderControl() {
 
         <Card className="overflow-hidden rounded-3xl border-white/10 bg-[#111116] shadow-2xl shadow-black/20 xl:sticky xl:top-5 xl:self-start"><CardContent className="p-0">{selectedOrder ? <><div className="flex items-start justify-between border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-orange-300">ORDER INSPECTOR</p><h2 className="mt-1 font-mono text-lg font-semibold">{selectedOrder.order_number}</h2></div><button onClick={() => setSelectedNumber(null)} className="rounded-lg p-2 text-slate-500 hover:bg-white/5 hover:text-white" aria-label="ปิดรายละเอียด"><X className="h-4 w-4" /></button></div><div className="space-y-5 p-5"><div className="flex items-start gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4"><div className="rounded-full bg-emerald-400/10 p-2 text-emerald-300"><CheckCircle2 className="h-4 w-4" /></div><div><p className="text-sm font-semibold text-emerald-200">{statusFor(selectedOrderWithReview || selectedOrder).label}</p><p className="mt-1 text-xs leading-5 text-slate-400">{selectedOrder.audit_flags || selectedOrder.cod_check_status || "สถานะจากข้อมูลจริงในฐานข้อมูล"}</p></div></div><section><p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">PRODUCT PAYLOAD</p><div className="space-y-2">{(selectedOrder.items.length ? selectedOrder.items : [{ id: 0, sku: selectedOrder.sku, th_name: selectedOrder.th_name, emoji: selectedOrder.emoji, display_for_packer: selectedOrder.display_for_packer, quantity: selectedOrder.items.length ? 0 : null, unit_price: selectedOrder.unit_price ?? selectedOrder.alien_unit_prices, expected_cod: selectedOrder.expected_cod }]).map((item, index) => <div key={`${item.id ?? "line"}-${index}`} className="rounded-2xl border border-white/5 bg-black/20 p-3"><div className="flex items-start gap-3"><span className="text-xl">{item.emoji ?? selectedOrder.emoji ?? "📦"}</span><div className="min-w-0 flex-1"><p className="font-mono text-xs font-semibold text-slate-200">{item.sku || "ไม่ระบุ SKU"}</p><p className="mt-1 text-xs text-slate-400">{itemDisplay(item)}</p></div></div><div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-600">จำนวน</p><p className="mt-1 text-slate-300">{item.quantity != null || item.qty != null ? `${item.quantity ?? item.qty} คอต` : "—"}</p></div><div><p className="text-slate-600">ราคาต่อหน่วย</p><p className="mt-1 text-orange-300">{money(item.unit_price)}</p></div><div><p className="text-slate-600">ยอด COD</p><p className="mt-1 text-orange-300">{money(selectedOrder.cod_amount)}</p></div></div></div>)}</div></section><section><p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">CUSTOMER CONTEXT</p><div className="space-y-2 rounded-2xl border border-white/5 bg-black/20 p-4 text-sm"><p className="font-semibold text-slate-100">{selectedOrder.customer_name || "ไม่ระบุชื่อ"}</p><p className="text-slate-400">{selectedOrder.phone || "ไม่ระบุเบอร์โทร"}</p><p className="leading-6 text-slate-400">{orderAddress(selectedOrder)}</p><div className="flex items-center gap-2 pt-2 text-xs text-slate-600"><Clock3 className="h-3.5 w-3.5" /> {selectedOrder.page_name || "ไม่ระบุเพจ"}</div></div></section><section><p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">CUSTOMER HISTORY · CHAT TIMELINE</p><pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-2xl border border-orange-400/10 bg-black/30 p-4 text-xs leading-5 text-amber-100/70">{customerHistoryText(selectedOrder) || "ไม่พบ chat_timeline"}</pre></section><div className="grid grid-cols-2 gap-2"><Button onClick={() => reviewOrder(selectedOrder, "PASSED")} variant="outline" className="border-emerald-400/25 bg-emerald-400/10 text-emerald-200"><CheckCircle2 className="mr-2 h-4 w-4" />ผ่าน</Button><Button onClick={() => reviewOrder(selectedOrder, "FAILED")} variant="outline" className="border-red-400/25 bg-red-400/10 text-red-200"><AlertTriangle className="mr-2 h-4 w-4" />ไม่ผ่าน</Button><Button onClick={() => previewSummary(selectedOrder)} variant="outline" className="border-orange-400/20 bg-orange-400/[0.06] text-amber-200 hover:bg-orange-400/10"><Eye className="mr-2 h-4 w-4" />พรีวิว</Button><Button onClick={copySummary} variant="outline" className="border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white">{copied ? <Check className="mr-2 h-4 w-4 text-emerald-300" /> : <Clipboard className="mr-2 h-4 w-4" />}{copied ? "คัดลอกแล้ว" : "คัดลอกสรุป"}</Button><Button disabled className="bg-gradient-to-r from-orange-600 to-orange-800 text-white opacity-70"><Send className="mr-2 h-4 w-4" /> ต่อ Atomic Claim</Button></div></div></> : <div className="flex min-h-[560px] flex-col items-center justify-center p-8 text-center text-slate-500"><Sparkles className="mb-4 h-8 w-8 text-orange-300/50" /><p className="text-sm">เลือกออเดอร์เพื่อดูรายละเอียด</p><p className="mt-1 text-xs text-slate-600">ข้อมูลจะแสดงจากตารางจริงเท่านั้น</p></div>}</CardContent></Card>
       </div>
-      <footer className="flex flex-wrap items-center justify-between gap-3 px-2 text-[11px] text-slate-600"><span className="flex items-center gap-2"><Database className="h-3.5 w-3.5" /> Primary: {getActiveCamp().toLowerCase()}_orders · Items: {getActiveCamp().toLowerCase()}_order_items</span><span>{liveQuery.data?.fetchedAt ? `ดึงข้อมูลล่าสุด ${timeLabel(liveQuery.data.fetchedAt)}` : "กำลังรอข้อมูล"}</span></footer>
+      <footer className="flex flex-wrap items-center justify-between gap-3 px-2 text-[11px] text-slate-600"><span className="flex items-center gap-2"><Database className="h-3.5 w-3.5" /> Primary: {"ST".toLowerCase()}_orders · Items: {"ST".toLowerCase()}_order_items</span><span>{liveQuery.data?.fetchedAt ? `ดึงข้อมูลล่าสุด ${timeLabel(liveQuery.data.fetchedAt)}` : "กำลังรอข้อมูล"}</span></footer>
     </div>
   </div>;
 }

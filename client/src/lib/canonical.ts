@@ -1,31 +1,26 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const CONFIG_KEY = "st-supabase-config";
-export type Camp = "ST";
-const DEPLOYMENT_CAMP: Camp = "ST";
 export type SupabaseConfig = { url: string; anonKey: string; orderTable?: string };
 let client: SupabaseClient | null = null;
 let clientSignature = "";
-export function getActiveCamp(): Camp { return DEPLOYMENT_CAMP; }
-export function setActiveCamp(_camp: Camp) { client = null; clientSignature = ""; }
-function profileKey(_camp: Camp) { return CONFIG_KEY; }
-export function getSupabaseConfig(camp: Camp = getActiveCamp()): SupabaseConfig | null {
+export function getSupabaseConfig(): SupabaseConfig | null {
   try {
-    const raw = localStorage.getItem(profileKey(camp));
+    const raw = localStorage.getItem(CONFIG_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<SupabaseConfig>;
     if (!value.url || !value.anonKey) return null;
     return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey, orderTable: value.orderTable || "vw_st_orders_all_v2" };
   } catch { return null; }
 }
-export function saveSupabaseConfig(config: SupabaseConfig, camp: Camp = getActiveCamp()) { const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), orderTable: config.orderTable?.trim() || defaultOrderView(camp) }; localStorage.setItem(profileKey(camp), JSON.stringify(clean)); client = null; clientSignature = ""; }
-export function clearSupabaseConfig(camp: Camp = getActiveCamp()) { localStorage.removeItem(profileKey(camp)); client = null; clientSignature = ""; }
-export function getSupabase() { const config = getSupabaseConfig(); if (!config) return null; const signature = `${getActiveCamp()}|${config.url}|${config.anonKey}`; if (!client || signature !== clientSignature) { client = createClient(config.url, config.anonKey); clientSignature = signature; } return client; }
+export function saveSupabaseConfig(config: SupabaseConfig) { const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), orderTable: config.orderTable?.trim() || defaultOrderView() }; localStorage.setItem(CONFIG_KEY, JSON.stringify(clean)); client = null; clientSignature = ""; }
+export function clearSupabaseConfig() { localStorage.removeItem(CONFIG_KEY); client = null; clientSignature = ""; }
+export function getSupabase() { const config = getSupabaseConfig(); if (!config) return null; const signature = `ST|${config.url}|${config.anonKey}`; if (!client || signature !== clientSignature) { client = createClient(config.url, config.anonKey); clientSignature = signature; } return client; }
 export function subscribeToChatMessages(onChange: () => void) {
   const api = getSupabase();
   if (!api) return () => undefined;
   const channel = api
-    .channel(`chat-live-${getActiveCamp().toLowerCase()}`)
+    .channel("chat-live-st")
     .on("postgres_changes", { event: "*", schema: "public", table: "chat_customer_messages" }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "chat_page_messages" }, onChange)
     .subscribe();
@@ -71,9 +66,9 @@ function scoreDailyOrderSignal(text: string, latestCod: number | null) {
   return { score, qualified, qualifiedCod, reasons: Array.from(new Set(reasons)), coreCount: core.length, flowCount: flow.length };
 }export type CanonicalItem = Record<string, any>;
 export type CanonicalOrder = Record<string, any> & { items: CanonicalItem[]; items_text: string; display_for_packer: string | null; is_ready_to_pack: boolean; cod_check_status: string | null; audit_status: string | null; order_status: string | null; telegram_status: string | null };
-const ORDER_SOURCE_TABLE_BY_CAMP: Record<Camp, string> = { BB: "vw_bb_orders_all_v2", ST: "vw_st_orders_all_v2", SB: "sb_orders" };
+const DEFAULT_ORDER_VIEW = "vw_st_orders_all_v2";
 const ORDER_OPERATIONAL_LIMIT = 400;
-function defaultOrderView(camp: Camp) { return ORDER_SOURCE_TABLE_BY_CAMP[camp]; }
+function defaultOrderView() { return DEFAULT_ORDER_VIEW; }
 function currentOrderWindowStart() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, Number(part.value)])); return new Date(Date.UTC(values.year, values.month - 1, values.day - 1, 7, 0, 0)).toISOString(); }
 function normalizeItem(item: CanonicalItem): CanonicalItem { const master = item.product_master && typeof item.product_master === "object" ? item.product_master : {}; const display = item.display_for_packer || item.master_display_with_quantity || item.master_display_for_packer || master.display_for_packer || master.label_display || item.single_cleaned_products || item.product_name || item.th_name || master.th_name || item.sku || null; const mapping = item.mapping_status || (item.sku_match_status === "MATCHED_PRODUCT_MASTER" ? "MATCHED" : null); return { ...item, ...master, quantity: num(item.quantity ?? item.extracted_qty ?? item.qty ?? item.master_qty_display ?? item.master_quantity), unit_price: num(item.unit_price_order ?? item.unit_price ?? master.unit_price), expected_cod: num(item.expected_cod), stock_qty: num(item.stock_qty ?? item.inventory?.stock_qty), mapping_status: mapping, display_for_packer: display, label: item.label || item.label_display || master.label_display || display, label_display: item.label_display || item.label || master.label_display || display }; }
 function parseJsonArray(value: unknown): CanonicalItem[] { if (Array.isArray(value)) return value as CanonicalItem[]; if (typeof value !== "string") return []; try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
@@ -99,7 +94,7 @@ export async function readCanonicalOrders(search = "", since: string | null = nu
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
 
-  const sourceTable = defaultOrderView(getActiveCamp());
+  const sourceTable = defaultOrderView();
   let queryBuilder = api.from(sourceTable).select("*");
   const { data: rows, error } = await queryBuilder
     .limit(search.trim() || since || until ? 1000 : ORDER_OPERATIONAL_LIMIT);
@@ -304,9 +299,8 @@ export type AlienReviewItem = Record<string, any> & { audit_status: string; raw_
 export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
   const api = getSupabase();
   if (!api) fail({ message: 'ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key' });
-  const camp = getActiveCamp();
-  const orderTable = camp === 'ST' ? 'st_orders' : camp === 'SB' ? 'sb_orders' : 'bb_orders';
-  const inspectorView = camp === 'ST' ? 'vw_st_alien_master_center' : 'vw_product_alien_inspector';
+  const orderTable = "st_orders";
+  const inspectorView = "vw_st_alien_master_center";
   const [ordersResult, masterResult, aliasResult, inventoryResult, inspectorResult] = await Promise.all([
     api.from(orderTable).select('*').order('updated_at', { ascending: false }).limit(1000),
     api.from('product_master').select('*').limit(1500),
@@ -369,7 +363,7 @@ export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
     const customerHistory = Array.from(new Set(history));
     const row = {
       ...order,
-      store_code: order.store_code ?? camp,
+      store_code: order.store_code ?? "ST",
       sku: resolvedSku || null,
       raw_display: raw || 'ไม่มีคำดิบ',
       mapped_display: matched ? masterDisplay : '',

@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getActiveCamp, readCanonicalOrders } from "@/lib/canonical";
+import { readCanonicalOrders } from "@/lib/canonical";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, CheckCircle2, Download, PackageSearch, RefreshCw, Search, ShieldAlert, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -17,7 +17,7 @@ function reviewStatus(order: any) { return String(order.review_status || "").toU
 export default function DailyChatSummary() {
   const [date, setDate] = useState(todayBangkok);
   const [search, setSearch] = useState("");
-  const camp = getActiveCamp();
+  const camp = "ST";
   const since = `${date}T00:00:00+07:00`;
   const until = `${date}T23:59:59+07:00`;
   const query = useQuery({ queryKey: ["daily-order-summary", camp, date], queryFn: () => readCanonicalOrders("", since, until), refetchInterval: 60_000 });
