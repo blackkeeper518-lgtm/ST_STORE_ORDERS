@@ -1,27 +1,41 @@
-# ST Theme Patch
+# ST Telegram Delivery Room Package
 
-แพ็กเกจนี้มีเฉพาะไฟล์ที่แก้สำหรับ `ST_STORE_ORDERS` เท่านั้น ไม่มีไฟล์ BB และไม่มี `node_modules`, `dist` หรือ `.git`
+แพ็กเกจนี้สำหรับโปรเจกต์ ST เท่านั้น ห้ามนำ SQL ไปใช้ในฐานข้อมูล BB
 
-## วิธีใช้
+## หน้าเว็บ
 
-1. แตก ZIP
-2. เข้าโฟลเดอร์ `ST_THEME_PATCH`
-3. คัดลอกโฟลเดอร์ `client` ไปทับในรีโพ `ST_STORE_ORDERS` เดิม โดยคงโครงสร้างโฟลเดอร์ไว้
-4. อัปโหลดไฟล์ที่อยู่ใต้ `client/src/...` ไปที่:
-   `https://github.com/blackkeeper518-lgtm/ST_STORE_ORDERS/upload/main`
-5. Commit เช่น `Apply ST orange HUD theme and ST-only layout`
+วางไฟล์ตามโครงสร้างเดิม:
 
-ไฟล์ในแพตช์นี้เป็นไฟล์ที่แก้ธีมและ ST isolation:
+```text
+client/src/pages/TelegramDeliveryRoom.tsx
+client/src/lib/canonical.ts
+client/src/lib/telegramDelivery.ts
+```
 
-- `client/src/components/DashboardLayout.tsx`
-- `client/src/index.css`
-- `client/src/lib/canonical.ts`
-- `client/src/pages/ConnectSupabase.tsx`
-- `client/src/pages/DailyChatSummary.tsx`
-- `client/src/pages/OrderControl.tsx`
-- `client/src/pages/ParcelMapping.tsx`
-- `client/src/pages/SecretGallery.tsx`
-- `client/src/pages/StockRoom.tsx`
-- `client/src/pages/TelegramDeliveryRoom.tsx`
+Route เดิมยังใช้:
 
-หลังอัปโหลด Render จะ build ตามการตั้งค่าเดิมของรีโพ
+```text
+/telegram-delivery
+```
+
+ห้อง ST รองรับการติ๊กเลือกออเดอร์ทีละรายการหรือเปิดเลือกทั้งหมด, ปล่อยรันเฉพาะรายการที่เลือก, คัดลอกบิล, แก้ไข, ส่งจากเว็บ, ส่งจากภายนอก และกด `ติ๊ก SENT` ภายหลังได้ โดยการปล่อยรันไม่เปลี่ยน SENT อัตโนมัติ และการเตือนไม่บล็อกการส่ง
+
+## SQL ที่ให้มา
+
+รันใน Supabase ST เท่านั้น ตามลำดับที่เหมาะสม:
+
+1. `vw_st_orders_all_v2.sql`
+2. `vw_st_product_extraction_lab.sql`
+3. `st_stamp_telegram_header_by_product_lane.sql`
+4. `st_manual_delivery_and_alert_room_v1.sql`
+
+SQL เป็นแหล่งสำหรับคิวออเดอร์, Lab, หัวบิล และห้องตรวจ/ส่งของ ST
+
+## กฎข้อมูล
+
+- ST ใช้แหล่งข้อมูล ST เท่านั้น
+- สินค้าจาก Lab เป็นแหล่งแสดงสินค้า
+- ถ้าแมปไม่ได้ ให้เก็บ raw evidence และขึ้นป้ายตรวจ
+- หัวบิลต้องอ่านจากฟิลด์หัวบิลแบบไดนามิกของฐานข้อมูลเมื่อมีค่า
+- ส่งจากเว็บหรือส่งจากภายนอกได้ แล้วกลับมากด `ติ๊ก SENT`
+- ห้ามรัน SQL ชุดนี้ใน BB
