@@ -11,10 +11,15 @@ const DEFAULT_HEADER = "🚀 [บิลสมบูรณ์ - READY]";
 
 type OrderRow = Record<string, any>;
 
-function isSent(row: OrderRow) {
+function isSent(row?: OrderRow | null) {
+  if (!row) return false;
   const status = String(row.telegram_status ?? "").trim().toLowerCase();
   const sent = String(row.telegram_sent ?? "").trim().toLowerCase();
   return ["1", "true", "t", "sent", "delivered", "ไปแล้วไปลับ"].includes(status) || ["1", "true", "t", "sent"].includes(sent);
+}
+
+function orderKey(row: OrderRow) {
+  return String(row.upsert_key ?? row.id ?? row.order_number ?? "");
 }
 
 function deliveryStatus(row: OrderRow) {
@@ -112,6 +117,7 @@ function warningOf(row: OrderRow) {
 export default function TelegramDeliveryRoom() {
   const [header, setHeader] = useState(DEFAULT_HEADER);
   const [selected, setSelected] = useState(0);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   const [showEvidence, setShowEvidence] = useState(true);
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("search") ?? "");
@@ -123,9 +129,10 @@ export default function TelegramDeliveryRoom() {
     refetchInterval: 180_000,
   });
 
-  const allOrders = (query.data?.orders ?? []) as OrderRow[];
+  const allOrders = (query.data?.orders ?? []).filter(Boolean) as OrderRow[];
   const waiting = useMemo(() => allOrders.filter((row) => room === "sent" ? isSent(row) : !isSent(row)).sort((a, b) => new Date(realTime(b) || 0).getTime() - new Date(realTime(a) || 0).getTime()), [allOrders, room]);
   const order = waiting[selected];
+  const selectedOrders = useMemo(() => waiting.filter((row) => selectedKeys.has(orderKey(row))), [selectedKeys, waiting]);
   const message = useMemo(() => order ? telegramText(order, header || DEFAULT_HEADER) : "คิวว่าง — ไม่มีออเดอร์รอส่ง", [order, header]);
   const telegramSelection = useMemo(() => order ? ({ text: message, source: "CANONICAL_DYNAMIC" as const, dirty: false, body: getTelegramBody(order) }) : null, [order, message]);
   const selectedIssues = order ? issueOf(order) : [];
@@ -142,6 +149,11 @@ export default function TelegramDeliveryRoom() {
   useEffect(() => {
     if (selected >= waiting.length) setSelected(Math.max(0, waiting.length - 1));
   }, [selected, waiting.length]);
+
+  useEffect(() => {
+    const visibleKeys = new Set(waiting.map(orderKey));
+    setSelectedKeys((current) => new Set(Array.from(current).filter((key) => visibleKeys.has(key))));
+  }, [waiting]);
 
   async function copyMessage() {
     if (!order) return;
@@ -160,6 +172,48 @@ export default function TelegramDeliveryRoom() {
     } catch (error) {
       setSendMessage(`ส่งไม่สำเร็จ: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  function toggleOrder(row: OrderRow) {
+    const key = orderKey(row);
+    if (!key) return;
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    const keys = waiting.map(orderKey).filter(Boolean);
+    setSelectedKeys((current) => keys.length > 0 && keys.every((key) => current.has(key)) ? new Set() : new Set(keys));
+  }
+
+  async function sendSelectedOrders() {
+    if (!selectedOrders.length) { setSendMessage("ยังไม่ได้ติ๊กเลือกออเดอร์"); return; }
+    setSendMessage(`กำลังปล่อยรัน ${selectedOrders.length} ออเดอร์...`);
+    try {
+      for (const row of selectedOrders) {
+        const text = telegramText(row, header || DEFAULT_HEADER);
+        await sendTelegramFromN8n(row, { text, source: "CANONICAL_DYNAMIC", dirty: false, body: getTelegramBody(row) });
+      }
+      setSendMessage(`ปล่อยรันสำเร็จ ${selectedOrders.length} ออเดอร์ — ยังไม่ติ๊ก SENT อัตโนมัติ`);
+      await query.refetch();
+    } catch (error) { setSendMessage(`ปล่อยรันหยุดที่รายการหนึ่ง: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+
+  async function markSelectedOrdersSent() {
+    if (!selectedOrders.length) { setSendMessage("ยังไม่ได้ติ๊กเลือกออเดอร์"); return; }
+    try {
+      for (const row of selectedOrders) {
+        if (!row.upsert_key) continue;
+        const { error } = await supabase.from("st_orders").update({ telegram_sent: true, telegram_status: "SENT", delivery_state: "SENT", telegram_sent_at: new Date().toISOString(), last_delivery_note: "ผู้ใช้งานยืนยันส่งแล้วจากภายนอก/หน้า Telegram ST" }).eq("upsert_key", row.upsert_key);
+        if (error) throw error;
+      }
+      setSendMessage(`ติ๊ก SENT แล้ว ${selectedOrders.length} ออเดอร์`);
+      setSelectedKeys(new Set());
+      await query.refetch();
+    } catch (error) { setSendMessage(`บันทึก SENT ไม่สำเร็จ: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
   async function markCurrentOrderSent() {
@@ -205,7 +259,7 @@ export default function TelegramDeliveryRoom() {
 
       <div className="grid gap-3 md:grid-cols-[1.2fr_1fr]">
         <div className="rounded-2xl border border-orange-300/25 bg-orange-400/10 p-4 text-xs leading-6 text-orange-50/80"><p className="mb-1 flex items-center gap-2 font-semibold text-orange-200"><Zap className="h-4 w-4" />ลำดับสำคัญของห้องนี้</p><b className="text-white">ป้ายหัวบิล → สถานะส่ง → คำเตือน → ข้อมูลสินค้า/ที่อยู่</b><p className="mt-1 text-orange-100/55">พบคำเตือนในคิว {warningCount} จุด · ปุ่มคัดลอกไม่เปลี่ยนสถานะ</p></div>
-        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4 text-xs leading-6 text-cyan-50/75"><p className="mb-1 flex items-center gap-2 font-semibold text-cyan-200"><AlertTriangle className="h-4 w-4" />กติกาความปลอดภัย</p>ส่งสำเร็จต้องมาจากตัวส่งภายนอกเท่านั้น · ข้อมูลดิบจากแชทไม่ถูกเขียนทับ</div>
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4 text-xs leading-6 text-cyan-50/75"><p className="mb-1 flex items-center gap-2 font-semibold text-cyan-200"><AlertTriangle className="h-4 w-4" />กติกาความปลอดภัย</p>ส่งจากเว็บหรือภายนอกก็ได้ · กดติ๊ก SENT เมื่อส่งจริงแล้ว · ข้อมูลดิบจากแชทไม่ถูกเขียนทับ</div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -219,7 +273,7 @@ export default function TelegramDeliveryRoom() {
           <CardHeader className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2 text-base text-orange-100"><Clock3 className="h-4 w-4 text-orange-300" />{room === "sent" ? "ประวัติส่งแล้ว" : "คิวตามเวลาจริง"}</CardTitle><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setRoom(room === "sent" ? "queue" : "sent")} className="border-cyan-400/20 text-cyan-200">{room === "sent" ? "กลับคิวรอส่ง" : "ประวัติส่งแล้ว"}</Button><Button size="sm" variant="outline" onClick={() => query.refetch()} className="border-orange-400/20 text-orange-200"><RefreshCw className={`mr-1 h-3.5 w-3.5 ${query.isFetching ? "animate-spin" : ""}`} />รีเฟรช</Button></div></div>
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหาเลขออเดอร์ / ลูกค้า / สินค้า" className="border-orange-400/20 bg-black/40 text-orange-100 placeholder:text-orange-100/30" />
-            <div className="flex items-center justify-between text-xs text-orange-100/55"><span>แสดง {waiting.length} รายการ</span><span className="font-mono">ใหม่สุดอยู่บน</span></div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-orange-100/55"><span>แสดง {waiting.length} รายการ · เลือกแล้ว {selectedOrders.length}</span><div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={toggleAllVisible} className="h-7 border-cyan-400/30 px-2 text-[10px] text-cyan-200">{waiting.length > 0 && waiting.every((row) => selectedKeys.has(orderKey(row))) ? "ปิดเลือกทั้งหมด" : "เปิดเลือกทั้งหมด"}</Button><Button size="sm" onClick={sendSelectedOrders} disabled={!selectedOrders.length || sendMessage.startsWith("กำลังปล่อยรัน")} className="h-7 border-fuchsia-300/50 bg-fuchsia-500/20 px-2 text-[10px] text-fuchsia-100">ปล่อยรัน ({selectedOrders.length})</Button><Button size="sm" onClick={markSelectedOrdersSent} disabled={!selectedOrders.length} className="h-7 border-emerald-300/50 bg-emerald-500/20 px-2 text-[10px] text-emerald-100">ติ๊ก SENT</Button><span className="font-mono">ใหม่สุดอยู่บน</span></div></div>
           </CardHeader>
           <CardContent><div className="max-h-[640px] space-y-2 overflow-auto pr-1">
             {query.isLoading && <div className="rounded-2xl border border-dashed border-orange-400/20 p-6 text-center text-sm text-orange-100/55">กำลังอ่านห้อง...</div>}
@@ -229,7 +283,7 @@ export default function TelegramDeliveryRoom() {
               const issues = issueOf(item);
               const warnings = warningOf(item);
               return <button type="button" key={item.upsert_key || item.order_number || item.id || index} onClick={() => setSelected(index)} className={`w-full rounded-2xl border p-3 text-left ${index === selected ? "border-orange-300/70 bg-orange-500/15 shadow-lg shadow-orange-950/20" : "border-white/10 bg-black/20 hover:border-orange-400/30"}`}>
-                <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs text-orange-100">{item.order_number || item.upsert_key || `#${item.id ?? "?"}`}</span><span className="text-[10px] text-orange-100/45">{displayTime(item)}</span></div>
+                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 font-mono text-xs text-orange-100"><input type="checkbox" checked={selectedKeys.has(orderKey(item))} onChange={() => toggleOrder(item)} onClick={(event) => event.stopPropagation()} aria-label={`เลือก ${item.order_number || item.upsert_key || item.id}`} className="h-4 w-4 accent-fuchsia-400" />{item.order_number || item.upsert_key || `#${item.id ?? "?"}`}</span><span className="text-[10px] text-orange-100/45">{displayTime(item)}</span></div>
                 <p className="mt-2 truncate text-xs text-orange-100/70">{productOf(item)}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className={`rounded-full border px-2 py-0.5 text-[10px] ${deliveryStatus(item).tone}`}>{deliveryStatus(item).label}</span>{warnings.length > 0 && <span className="rounded-full border border-red-300/30 bg-red-400/10 px-2 py-0.5 text-[10px] text-red-200">เตือน {warnings.length}</span>}{issues.length > 0 && <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200">ตรวจ {issues.length}</span>}</div><p className="mt-1 text-[10px] text-orange-100/40">{deliveryStatus(item).slogan}</p>
               </button>;
