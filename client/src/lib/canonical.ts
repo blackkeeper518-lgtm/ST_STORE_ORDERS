@@ -1,28 +1,85 @@
+// ⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘
+// 🎯 BB OrderControl : DATA ROUTE RULES
+// ⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘
+// Scope: BB only · อ่านและตรวจออเดอร์
+// โต๊ะหลัก: 🗝️HERMES_ARCHIVE
+// สินค้า/หัวบิล: ฟิลด์จาก FOUR_SEND_BILL_BUILDER
+// หน้าเว็บอ่าน projection ที่ตรงกับ schema ปัจจุบันและใช้ upsert_key เป็นคีย์
+// คีย์หลัก: upsert_key · เวลาหลัก: order_time_display
+// ที่อยู่สำรอง: address_display_packer
+// สถานะส่งใช้ delivery_state · ห้ามลบหลักฐาน · ห้ามเอา ST logic มาปน
+// ⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘⫘
+
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const CONFIG_KEY = "st-supabase-config";
-export type Camp = "ST";
-const DEPLOYMENT_CAMP: Camp = "ST";
+const CONFIG_KEY = "bb-supabase-config";
+const TRACKING_CONFIG_KEY = "bb-tracking-supabase-config";
+const CHAT_CONFIG_KEY = "bb-chat-supabase-config";
+const PARCEL_CONFIG_KEY = "bb-parcel-supabase-config";
+export type Camp = "BB";
+export type SupabaseProject = "main" | "tracking" | "chat" | "parcel";
+const DEPLOYMENT_CAMP: Camp = "BB";
 export type SupabaseConfig = { url: string; anonKey: string; orderTable?: string };
-let client: SupabaseClient | null = null;
-let clientSignature = "";
+// Browser connections use public Anon/Publishable keys only; never store service-role keys here.
+const DEPLOYMENT_SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL ?? "").trim().replace(/\/$/, "");
+const DEPLOYMENT_SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? "").trim();
+const DEPLOYMENT_TRACKING_URL = String(import.meta.env.VITE_TRACKING_SUPABASE_URL ?? "").trim().replace(/\/$/, "");
+const DEPLOYMENT_TRACKING_ANON_KEY = String(import.meta.env.VITE_TRACKING_SUPABASE_ANON_KEY ?? "").trim();
+const DEPLOYMENT_CHAT_URL = String(import.meta.env.VITE_CHAT_SUPABASE_URL ?? "").trim().replace(/\/$/, "");
+const DEPLOYMENT_CHAT_ANON_KEY = String(import.meta.env.VITE_CHAT_SUPABASE_ANON_KEY ?? "").trim();
+const DEPLOYMENT_PARCEL_URL = String(import.meta.env.VITE_PARCEL_SUPABASE_URL ?? "").trim().replace(/\/$/, "");
+const DEPLOYMENT_PARCEL_ANON_KEY = String(import.meta.env.VITE_PARCEL_SUPABASE_ANON_KEY ?? "").trim();
+const clients: Partial<Record<SupabaseProject, SupabaseClient>> = {};
+const clientSignatures: Partial<Record<SupabaseProject, string>> = {};
 export function getActiveCamp(): Camp { return DEPLOYMENT_CAMP; }
-export function setActiveCamp(_camp: Camp) { client = null; clientSignature = ""; }
-function profileKey(_camp: Camp) { return CONFIG_KEY; }
-export function getSupabaseConfig(camp: Camp = getActiveCamp()): SupabaseConfig | null {
-  try {
-    const raw = localStorage.getItem(profileKey(camp));
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<SupabaseConfig>;
-    if (!value.url || !value.anonKey) return null;
-    return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey, orderTable: value.orderTable || "vw_st_orders_all_v2" };
-  } catch { return null; }
+export function setActiveCamp(_camp: Camp) { for (const project of ["main", "tracking", "chat", "parcel"] as const) { delete clients[project]; delete clientSignatures[project]; } }
+function profileKey(_camp: Camp, project: SupabaseProject) {
+  if (project === "tracking") return TRACKING_CONFIG_KEY;
+  if (project === "chat") return CHAT_CONFIG_KEY;
+  if (project === "parcel") return PARCEL_CONFIG_KEY;
+  return CONFIG_KEY;
 }
-export function saveSupabaseConfig(config: SupabaseConfig, camp: Camp = getActiveCamp()) { const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), orderTable: config.orderTable?.trim() || defaultOrderView(camp) }; localStorage.setItem(profileKey(camp), JSON.stringify(clean)); client = null; clientSignature = ""; }
-export function clearSupabaseConfig(camp: Camp = getActiveCamp()) { localStorage.removeItem(profileKey(camp)); client = null; clientSignature = ""; }
-export function getSupabase() { const config = getSupabaseConfig(); if (!config) return null; const signature = `${getActiveCamp()}|${config.url}|${config.anonKey}`; if (!client || signature !== clientSignature) { client = createClient(config.url, config.anonKey); clientSignature = signature; } return client; }
+export function getSupabaseConfig(camp: Camp = getActiveCamp(), project: SupabaseProject = "main", urlOverride?: string): SupabaseConfig | null {
+  try {
+    const pinnedUrl = String(urlOverride ?? "").trim().replace(/\/$/, "");
+    const raw = localStorage.getItem(profileKey(camp, project));
+    if (raw) {
+      const value = JSON.parse(raw) as Partial<SupabaseConfig>;
+      const url = pinnedUrl || String(value.url ?? "").trim().replace(/\/$/, "");
+      if (url && value.anonKey) return { url, anonKey: value.anonKey, orderTable: project === "main" ? defaultOrderView(camp) : undefined };
+    }
+    if (project === "chat" || project === "parcel") {
+      const fallback = localStorage.getItem(TRACKING_CONFIG_KEY);
+      if (fallback) {
+        const value = JSON.parse(fallback) as Partial<SupabaseConfig>;
+        if (value.url && value.anonKey) return { url: value.url.replace(/\/$/, ""), anonKey: value.anonKey };
+      }
+    }
+  } catch { /* invalid local value; try deployment defaults */ }
+  const url = String(urlOverride ?? "").trim().replace(/\/$/, "") || (project === "tracking" ? DEPLOYMENT_TRACKING_URL : project === "chat" ? DEPLOYMENT_CHAT_URL || DEPLOYMENT_TRACKING_URL : project === "parcel" ? DEPLOYMENT_PARCEL_URL || DEPLOYMENT_TRACKING_URL : DEPLOYMENT_SUPABASE_URL);
+  const anonKey = project === "tracking" ? DEPLOYMENT_TRACKING_ANON_KEY : project === "chat" ? DEPLOYMENT_CHAT_ANON_KEY || DEPLOYMENT_TRACKING_ANON_KEY : project === "parcel" ? DEPLOYMENT_PARCEL_ANON_KEY || DEPLOYMENT_TRACKING_ANON_KEY : DEPLOYMENT_SUPABASE_ANON_KEY;
+  return url && anonKey ? { url, anonKey, orderTable: project === "main" ? defaultOrderView(camp) : undefined } : null;
+}
+export function saveSupabaseConfig(config: SupabaseConfig, camp: Camp = getActiveCamp(), project: SupabaseProject = "main") {
+  const clean = { url: config.url.trim().replace(/\/$/, ""), anonKey: config.anonKey.trim(), ...(project === "main" ? { orderTable: defaultOrderView(camp) } : {}) };
+  localStorage.setItem(profileKey(camp, project), JSON.stringify(clean));
+  delete clients[project]; delete clientSignatures[project];
+}
+export function clearSupabaseConfig(camp: Camp = getActiveCamp(), project: SupabaseProject = "main") {
+  localStorage.removeItem(profileKey(camp, project)); delete clients[project]; delete clientSignatures[project];
+}
+export function getSupabase(project: SupabaseProject = "main", urlOverride?: string) {
+  const config = getSupabaseConfig(getActiveCamp(), project, urlOverride);
+  if (!config) return null;
+  const signature = `${getActiveCamp()}|${config.url}|${config.anonKey}`;
+  if (!clients[project] || signature !== clientSignatures[project]) {
+    clients[project] = createClient(config.url, config.anonKey);
+    clientSignatures[project] = signature;
+  }
+  return clients[project] ?? null;
+}
 export function subscribeToChatMessages(onChange: () => void) {
-  const api = getSupabase();
+  const api = getSupabase("chat");
   if (!api) return () => undefined;
   const channel = api
     .channel(`chat-live-${getActiveCamp().toLowerCase()}`)
@@ -37,220 +94,369 @@ export const supabase = { from: (table: string) => { const api = getSupabase(); 
 function fail(error: any): never { throw new Error(error?.message || "Supabase connection failed"); }
 function num(v: any) { const n = Number(v); return v == null || v === "" || !Number.isFinite(n) ? null : n; }
 function asText(v: any) { return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v); }
-function parseCod(text: string) { const matches = text.match(/(?:ยอดรวม\s*)?cod\s*[:=]?\s*\[?\s*([\d,]+(?:\.\d+)?)\s*\]?|เก็บปลายทาง[^\d]{0,20}([\d,]+(?:\.\d+)?)/gi) || []; const last = matches[matches.length - 1] || ""; const numberMatch = last.match(/[\d,]+(?:\.\d+)?/); return numberMatch ? Number(numberMatch[0].replace(/,/g, "")) : null; }
-const CORE_SIGNATURE = ["🚨 [สถานะ: ปิดยอดสำเร็จ!]", "[สรุปรายการสั่งซื้อ]", "⚡FLASH EXPRESS", "COD", "📍ที่อยู่จัดส่ง:", "✅:", "🟡MOND GOLD:", "🆔เลขที่ออเดอร์: ORD-2606:", "📱 เบอร์:", "📮 รหัสไปรษณีย์:", "👤 ชื่อ:", "💰 COD:", "เขียว:", "สรุปรายการสั่งซื้อ", "เลขที่ออเดอร์", "ที่อยู่จัดส่ง", "ORD-", "📦 รายการสินค้า:", "คอต.", "ยอดรวม"];
-const FLOW_SIGNATURES = [
-  "🚨[สถานะ:ปิดยอดสำเร็จ]",
-  "🦁[สรุปรายการสั่งซื้อ]สิงโตสโตร์ ↠",
-  "🆔 เลขที่ออเดอร์: ORD-2606",
-  "⏰ เวลาสั่งซื้อ:",
-  "💰 ยอดรวมCOD:",
-  "━━━━━━━━━━━━━━━━",
-  "👤ชื่อ:",
-  "📱เบอร์โทรศัพท์:",
-  "📍ที่อยู่จัดส่ง:",
-  "📮รหัสไปรษณีย์:",
-  "📦 รายการสินค้า:",
-  "🚚 ขนส่ง: ⚡FLASH EXPRESS💨",
-  "#BellaAgent",
-  "#SINGTO_ORDER"
-];
-const FLOW_SIGNALS = ["เบลล่า", "Bella", "#MilaAgent", "#BellaAgent", "Agent", "#Agent", "BellaAgent", "MilaAgent", "Mila", "#GinaAgent", "Gina", "#LemonAgent", "Lemon", "จีน่า", "เลม่อน", "มิล่า", "สรุปโดย:🤖"];
-const PRODUCT_LINE_SIGNAL = /(?:📦\s*)?รายการสินค้า|(?:🟢|🟡|🔴|🟠|🟣|🔵|🟩|🟨|🟥|🟧|🟪|🟦|🍉|🥭)\s*[A-Z_ก-๙]+.*?คอต\.?/i;
-function normalizeFlowText(value: string) { return String(value || "").toLowerCase().replace(/[\s:：|]/g, ""); }
-function scoreDailyOrderSignal(text: string, latestCod: number | null) {
-  const value = String(text || ""); const reasons: string[] = [];
-  const lower = value.toLowerCase(); const flowText = normalizeFlowText(value); const core = CORE_SIGNATURE.filter(k => lower.includes(k.toLowerCase())); const flow = FLOW_SIGNALS.filter(k => lower.includes(k.toLowerCase())); const flowSignature = FLOW_SIGNATURES.filter(k => flowText.includes(normalizeFlowText(k))); const productLine = PRODUCT_LINE_SIGNAL.test(value);
-  const phone = /(?:เบอร์โทรศัพท์|เบอร์|โทร|tel)\s*[:：.]?\s*\d{9,10}|\b0\d{9}\b/i.test(value); const postal = /\b\d{5}\b/.test(value);
-  const address = /(?:ที่อยู่|จัดส่ง|ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.)/i.test(value); const orderDate = /\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/.test(value) || /order_date|เวลาสั่งซื้อ|วันที่สั่งซื้อ/i.test(value);
-  const cod = latestCod ?? parseCod(value); let score = 0;
-  if (cod != null) { score += 10; reasons.push("COD " + cod); } if (phone) { score += 3; reasons.push("เบอร์โทร"); } if (postal) { score += 4; reasons.push("รหัสไปรษณีย์"); }
-  if (address) { score += 4; reasons.push("ที่อยู่"); } if (orderDate) { score += 5; reasons.push("วันที่/เวลาสั่งซื้อ"); }
-  if (core.length) { score += Math.min(core.length * 3, 12); reasons.push("Core " + core.slice(0, 3).join(" | ")); } if (flow.length) { score += Math.min(flow.length * 3, 9); reasons.push("Flow " + flow.slice(0, 3).join(" | ")); } if (flowSignature.length) { score += Math.min(flowSignature.length * 4, 20); reasons.push("Singto " + flowSignature.slice(0, 3).join(" | ")); } if (productLine) { score += 3; reasons.push("บรรทัดสินค้า"); }
-  const qualifiedCod = cod != null && cod >= 200; const qualified = score >= 30 || qualifiedCod || core.length > 0 || flow.length > 0 || flowSignature.length > 0;
-  return { score, qualified, qualifiedCod, reasons: Array.from(new Set(reasons)), coreCount: core.length, flowCount: flow.length };
-}export type CanonicalItem = Record<string, any>;
-export type CanonicalOrder = Record<string, any> & { items: CanonicalItem[]; items_text: string; display_for_packer: string | null; is_ready_to_pack: boolean; cod_check_status: string | null; audit_status: string | null; order_status: string | null; telegram_status: string | null };
-const ORDER_SOURCE_TABLE_BY_CAMP: Record<Camp, string> = { BB: "vw_bb_orders_all_v2", ST: "vw_st_orders_all_v2", SB: "sb_orders" };
-const ORDER_OPERATIONAL_LIMIT = 400;
+function chatAttachmentPayload(row: any) {
+  const values: any[] = [];
+  const add = (value: any) => {
+    if (value == null || value === "") return;
+    if (Array.isArray(value)) { value.forEach(add); return; }
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (/^https?:\/\//i.test(text)) { values.push({ url: text }); return; }
+      try { add(JSON.parse(text)); } catch { /* keep non-JSON text out of image payload */ }
+      return;
+    }
+    if (typeof value === "object") values.push(value);
+  };
+  add(row?.attachments_json);
+  add(row?.attachments);
+  add(row?.attachments_raw);
+  add(row?.attachment_urls);
+  add(row?.attachment_url);
+  add(row?.image_urls);
+  add(row?.image_url);
+  add(row?.media_url);
+  add(row?.file_url);
+  add(row?.message_attachments);
+  add(row?.sticker_url);
+  return JSON.stringify(values);
+}
+function hasChatAttachment(row: any) {
+  return Boolean(row?.has_attachment || chatAttachmentPayload(row) !== "[]");
+}
+export type CanonicalOrder = Record<string, any> & { upsert_key: string; order_time_display: string };
+const ORDER_SOURCE_TABLE_BY_CAMP: Record<Camp, string> = { BB: "🗝️HERMES_ARCHIVE" };
+// Order screens load at most 1,000 rows per explicit refresh.
+const ORDER_OPERATIONAL_LIMIT = 1000;
 function defaultOrderView(camp: Camp) { return ORDER_SOURCE_TABLE_BY_CAMP[camp]; }
 function currentOrderWindowStart() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, Number(part.value)])); return new Date(Date.UTC(values.year, values.month - 1, values.day - 1, 7, 0, 0)).toISOString(); }
-function normalizeItem(item: CanonicalItem): CanonicalItem { const master = item.product_master && typeof item.product_master === "object" ? item.product_master : {}; const display = item.for_packer_st_display || item.single_cleaned_products || null; const mapping = item.mapping_status || (item.sku_match_status === "MATCHED_PRODUCT_MASTER" ? "MATCHED" : null); return { ...item, ...master, quantity: num(item.quantity ?? item.extracted_qty ?? item.qty ?? item.master_qty_display ?? item.master_quantity), unit_price: num(item.unit_price_order ?? item.unit_price ?? master.unit_price), expected_cod: num(item.expected_cod), stock_qty: num(item.stock_qty ?? item.inventory?.stock_qty), mapping_status: mapping, display_for_packer: display, label: display, label_display: display }; }
-function labItems(value: unknown): CanonicalItem[] { return parseJsonArray(value).map((candidate: any) => ({ ...candidate, raw_text: candidate.raw_text ?? null, product_name: candidate.raw_text ?? candidate.th_name ?? null, sku: candidate.master_sku ?? null, th_name: candidate.th_name ?? null, for_packer_st_display: candidate.master_display || candidate.raw_text || null, quantity: candidate.cot_quantity ?? null, extracted_qty: candidate.cot_quantity ?? null, mapping_status: candidate.line_mapping_status ?? "REVIEW" })); }
-function parseJsonArray(value: unknown): CanonicalItem[] { if (Array.isArray(value)) return value as CanonicalItem[]; if (typeof value !== "string") return []; try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
-function orderLocalTimestamp(row: any): string | null {
-  const dateText = String(row.order_date || row.date_th || "");
-  const timeText = String(row.time_th || "");
-  const dateMatch = dateText.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
-  const timeMatch = timeText.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!dateMatch || !timeMatch) return null;
-  const day = Number(dateMatch[1]); const month = Number(dateMatch[2]);
-  let year = Number(dateMatch[3]); if (year < 100) year += 2000; if (year > 2400) year -= 543;
-  const hour = Number(timeMatch[1]); const minute = Number(timeMatch[2]); const second = Number(timeMatch[3] || 0);
-  if (![day, month, year, hour, minute, second].every(Number.isFinite)) return null;
-  // Bangkok local time represented as UTC ISO: 14 Sep 21:00 +07 = 14 Sep 14:00Z.
-  return new Date(Date.UTC(year, month - 1, day, hour - 7, minute, second)).toISOString();
+function displayOrderSortKey(value: unknown): number {
+  const match = String(value ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})/);
+  if (!match) return 0;
+  let year = Number(match[3]);
+  if (year < 100) year = 1957 + year; // Thai short year: 69 = 2026
+  else if (year > 2400) year -= 543;
+  return Number(`${year}${match[2].padStart(2, "0")}${match[1].padStart(2, "0")}${match[4].padStart(2, "0")}${match[5]}`);
 }
-function effectiveOrderTime(row: any): string | null {
-  // Facebook order_time is authoritative. Other timestamps are audit fallbacks only.
-  return row.order_time || row.order_message_created_at || row.facebook_message_created_at || row.facebook_created_at || row.fb_created_at || row.order_close_time_from_chat || orderLocalTimestamp(row) || null;
+// ⫘ CENTRAL ORDER CLOCK · เวลากลางของเว็บ ใช้เรียงออเดอร์ล่าสุดก่อนทุกห้อง
+// แหล่งเวลาเดียวของระบบ: order_time_display แบบ DD/MM/YY HH:mm
+export function orderTimeSortKey(value: unknown): number {
+  const raw = String(value ?? "").trim();
+  // order_time_display เป็นก้อนเวลาแบบ DD/MM/YY จาก n8n
+  // ต้องอ่านรูปแบบนี้ก่อน new Date() เพื่อไม่ให้ browser ตีความเป็น MM/DD/YY
+  const displayKey = displayOrderSortKey(raw);
+  if (displayKey) return displayKey;
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(parsed);
+    const part = (name: string) => parts.find((item) => item.type === name)?.value ?? "0";
+    return Number(`${part("year")}${part("month")}${part("day")}${part("hour")}${part("minute")}`);
+  }
+  return displayOrderSortKey(raw);
 }
-function normalizeOrder(row: any, items: CanonicalItem[]): CanonicalOrder { const normalized = items.map(normalizeItem); const cod = num(row.cod_amount); const mapping = row.alien_mapping_status || row.web_mapping_status || row.mapping_status || (normalized.length > 0 && normalized.every(item => item.mapping_status === "MATCHED") ? "MATCHED" : "CHECK_DATA"); const address = row.master_delivery_address || row.address_complete_web || row.web_address_primary || row.address_display_primary || row.full_address || row.address_display_packer || row.addressclean || row.address_display_fallback || row.web_address_fallback || row.web_address_short || [row.address_line_1, row.address_line_2, row.district, row.amphoe, row.province, row.zipcode].filter(Boolean).join(" ") || ""; const productDisplay = String(row.for_packer_st_display || "").trim() || String(row.single_cleaned_products || "").trim() || null; return { ...row, full_address: address, customer_name: row.customer_name, phone: row.phone || row.extracted_phone, address_display_primary: row.web_address_primary || row.address_display_primary || address, address_display_fallback: row.web_address_fallback || row.address_display_fallback || address, items: normalized, mapping_status: mapping, order_number: row.order_number || `#${row.id}`, order_time: effectiveOrderTime(row), cod_amount: cod, is_ready_to_pack: row.is_ready_to_pack ?? (mapping === "MATCHED"), cod_check_status: row.cod_check_status || (cod == null ? "CHECK" : "PASS"), audit_status: row.alien_audit_status || row.audit_status || mapping, telegram_status: row.telegram_status ?? null, items_text: productDisplay || "", display_for_packer: productDisplay }; }
+function displayDateKey(value: unknown): string {
+  const match = String(value ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (!match) return "";
+  let year = Number(match[3]);
+  if (year < 100) year = 1957 + year;
+  else if (year > 2400) year -= 543;
+  return `${year}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+function isoDateKey(value: string | null): string {
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
+  const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+  return values.year && values.month && values.day ? `${values.year}-${values.month}-${values.day}` : "";
+}
+// Projection aligned to FOUR_SEND_BILL_BUILDER and the applied HERMES schema.
+// Keep only known columns; upsert_key is the row key (the table has no id column).
+const HERMES_WEB_ORDER_COLUMNS = [
+  "upsert_key",
+  "bb_express_send_route",
+  "currentThreadTotalBills",
+  "duplicate_count_th",
+  "balloonNotice",
+  "sniperAuthorClass",
+  "facebook_name",
+  "threadId",
+  "time_th",
+  "customer_id",
+  "tracking_request_same_thai_date",
+  "tracking_request_route_hint",
+  "order_date",
+  "order_time",
+  "order_time_display",
+  "day_of_week",
+  "order_time_source",
+  "page_id",
+  "page_name",
+  "order_number",
+  "cod_amount",
+  "customer_name",
+  "phone",
+  "extracted_phone",
+  "phone_type",
+  "phone_status",
+  "phone_candidates",
+  "rejected_phone_candidates",
+  "address_display_packer",
+  "addressclean",
+  "finalAddress",
+  "short_address",
+  "district",
+  "amphoe",
+  "province",
+  "zipcode",
+  "order_source_type",
+  "chat_timeline",
+  "cod_check_status",
+  "shipping_carrier",
+  "assigned_agent",
+  "assigned_hashtag",
+  "original",
+  "orderItems",
+  "for_packer_st_display",
+  "sku",
+  "google_for_packer",
+  "manus_for_packer",
+  "final_order_qty",
+  "extracted_text_qty",
+  "qty_display_th",
+  "darksideBillDataComplete",
+  "darkside_completeness_status",
+  "darkside_missing_reasons",
+  "bill_data_reason",
+  "bill_signal_source",
+  "bill_quantity_is_blocker",
+  "route_reason_emoji",
+  "route_reason_color",
+  "route_reason_label",
+  "packer_obj",
+  "extracted_text_price",
+  "is_salty_gold",
+  "fibo_score",
+  "fibo_tier",
+  "fibo_badge",
+  "mathematically_price",
+  "final_order_price",
+  "is_vip",
+  "vip_tag",
+  "order_time_ms_reference",
+  "order_time_bkk_iso",
+  "order_time_thai_date",
+  "order_time_thai_clock",
+  "order_time_thai_label",
+  "order_time_contract_locked",
+  "tracking_request_48h",
+  "tracking_request_48h_event",
+  "node2_tracking_request_detected",
+  "node2_tracking_request_48h",
+  "node2_tracking_request_event",
+  "node2_tracking_request_route_hint",
+  "product_items_v5",
+  "product_map_sku_list",
+  "product_map_master_sku_list",
+  "order_fibo_product",
+  "packer_tag_display",
+  "final_product",
+  "final_display_for_packer",
+  "telegram_product_display",
+  "telegram_message_web",
+  "telegram_change_alert_web",
+  "telegram_message",
+  "customer_change_diff_json",
+  "customer_change_admin_footer",
+  "customer_change_admin_footer_text",
+  "customer_change_audit_group_key",
+  "customer_change_audit_is_current",
+  "customer_change_current_time",
+  "customer_change_current_upsert_key",
+  "customer_change_previous_time",
+  "customer_change_previous_upsert_key",
+  "pre_save_change_group_key",
+  "pre_save_change_selected",
+  "customer_address_current",
+  "customer_address_previous",
+  "customer_name_current",
+  "customer_name_previous",
+  "customer_phone_current",
+  "customer_phone_previous",
+  "customer_product_current",
+  "customer_product_previous",
+  "source_table",
+  "stock_notice",
+  "order_number_display",
+  "full_address",
+  "final_address_for_bill",
+  "address_fibo_selected_clean",
+  "send_eligible",
+  "telegram_bill_send_eligible",
+  "telegram_status",
+  "delivery_state",
+  "delivery_status",
+  "telegram_sent",
+  "telegram_sent_at",
+  "sent_at",
+  "life_status",
+  "status_color",
+  "routing_tag",
+  "product_mapping_status",
+  "customer_change_summary",
+  "raw_text",
+  "recipient_id",
+  "expected_cod",
+  "telegram_bill_header"
+].join(",");
+
+// HERMES_ARCHIVE stores the three aliased view fields with their original names.
+const HERMES_DIRECT_ORDER_COLUMNS = HERMES_WEB_ORDER_COLUMNS
+  .replace("currentThreadTotalBills", "currentthreadtotalbills")
+  .replace("balloonNotice", "balloonnotice")
+  .replace("sniperAuthorClass", "sniperauthorclass");
+
+// Only fields used by TelegramDeliveryRoom; avoid returning all 330 view columns.
+const TELEGRAM_WEB_ORDER_COLUMNS = [
+  // PIONEER and ANDROMEDA share the operational order number, but ANDROMEDA
+  // does not expose the optional order_number_display column.
+  "upsert_key", "source_table", "order_time_display", "order_number",
+  "balloonnotice",
+  "telegram_product_display", "final_display_for_packer", "order_fibo_product", "for_packer_st_display", "manus_for_packer", "google_for_packer", "packer_tag_display", "packer_obj",
+  "address_fibo_selected_clean", "address_display_packer", "full_address", "province", "zipcode", "phone", "extracted_phone",
+  "cod_amount", "customer_name", "facebook_name", "page_name", "shipping_carrier", "sku",
+  "delivery_state", "delivery_status", "telegram_status", "telegram_sent", "sent_at", "telegram_sent_at",
+  "telegram_message_web", "telegram_change_alert_web", "telegram_message", "telegram_change_alert",
+  "raw_text", "original"
+].join(",");
+
+function firstText(...values: unknown[]): string {
+  return values.map(value => String(value ?? "").trim()).find(Boolean) ?? "";
+}
+function asBoolean(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  return ["true", "t", "1", "yes", "ใช่"].includes(String(value ?? "").trim().toLowerCase());
+}
+
 export async function readCanonicalOrders(search = "", since: string | null = null, until: string | null = null) {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
 
-  const sourceTable = defaultOrderView(getActiveCamp());
-  let queryBuilder = api.from(sourceTable).select("*");
-  const { data: rows, error } = await queryBuilder
-    .limit(search.trim() || since || until ? 1000 : ORDER_OPERATIONAL_LIMIT);
-  if (error) fail(error);
-
-  const orderRows = rows ?? [];
-  const orderIds = orderRows.map((row: any) => Number(row.id)).filter((id: number) => Number.isFinite(id));
-  const itemsByOrder = new Map<number, CanonicalItem[]>();
-  const labByKey = new Map<string, any>();
-  let itemError: unknown = null;
-
-  // canonical_orders คือหัวบิล ส่วนสินค้าจริงอยู่ใน canonical_order_items
-  // รวมกลับมาเป็นแถวออเดอร์เดียวสำหรับหน้าเว็บ โดยไม่อ่านสินค้าเฉพาะจาก JSON ในหัวบิล
-  if (orderIds.length) {
-    const { data: itemRows, error: itemsError } = await api
-      .from("canonical_order_items")
-      .select("*")
-      .in("order_id", orderIds)
-      .order("line_no", { ascending: true });
-
-    itemError = itemsError;
-    if (!itemsError) {
-      for (const item of itemRows ?? []) {
-        const orderId = Number((item as any).order_id);
-        if (!Number.isFinite(orderId)) continue;
-        itemsByOrder.set(orderId, [...(itemsByOrder.get(orderId) ?? []), item as CanonicalItem]);
-      }
-    }
-  }
-
-  // ST Lab is the product source of truth. If it is unavailable, keep the
-  // order visible and use the existing fallback without rewriting evidence.
-  const { data: labRows, error: labError } = await api
-    .from("vw_st_product_extraction_lab")
-    .select("*")
-    .limit(2000);
-  if (!labError) {
-    for (const lab of labRows ?? []) {
-      const key = String((lab as any).upsert_key ?? "").trim();
-      if (key) labByKey.set(key, lab);
-    }
-  }
+  // n8n owns parsing, mapping, canonical selection and deduplication.
+  // The browser reads HERMES values as supplied and does not rebuild them.
+  const ordersResult = await api.from("🗝️HERMES_ARCHIVE")
+    .select(HERMES_DIRECT_ORDER_COLUMNS)
+    .limit(ORDER_OPERATIONAL_LIMIT);
+  if (ordersResult.error) fail(ordersResult.error);
 
   const query = search.trim().toLowerCase();
-  const orders = orderRows
-    .map((row: any) => {
-      const linkedItems = itemsByOrder.get(Number(row.id));
-      const lab = labByKey.get(String(row.upsert_key ?? "").trim());
-      const labCandidates = lab ? labItems(lab.lab_product_candidates) : [];
-      const labDisplay = labCandidates.map((item) => item.for_packer_st_display).filter(Boolean).join("\n");
-      const rowWithLab = lab ? { ...row, ...lab, for_packer_st_display: labDisplay || row.for_packer_st_display } : row;
-
-      // Fallback รองรับข้อมูลเก่าที่ยังไม่ได้แตกลง canonical_order_items
-      const fallbackItems = parseJsonArray(row.order_items).length
-        ? parseJsonArray(row.order_items)
-        : parseJsonArray(row.items_json).length
-          ? parseJsonArray(row.items_json)
-          : parseJsonArray(row.product_items).length
-            ? parseJsonArray(row.product_items)
-            : parseJsonArray(row.web_items_clean).length
-              ? parseJsonArray(row.web_items_clean)
-              : parseJsonArray(row.web_items_all_fields);
-
-      const normalized = normalizeOrder(rowWithLab, labCandidates.length ? labCandidates : linkedItems?.length ? linkedItems : fallbackItems);
-      return {
-        ...normalized,
-        source_table: sourceTable,
-        product_source: labCandidates.length ? "vw_st_product_extraction_lab" : "order_fallback",
-        raw_text_with_phone_timed: row.raw_text_with_phone_timed ?? row.raw_text_with_phone ?? row.raw_text ?? null,
-        review_status: row.review_status ?? null,
-      } as CanonicalOrder;
-    })
-    .filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query));
-
-  orders.sort((a, b) => new Date(b.order_time || 0).getTime() - new Date(a.order_time || 0).getTime());
-  return { orders, itemError, sourceTable, fetchedAt: new Date().toISOString(), since };
+  const fromKey = isoDateKey(since);
+  const untilKey = isoDateKey(until);
+  const orders = (ordersResult.data ?? []).filter((row: any) => {
+      if (query && !JSON.stringify(row).toLowerCase().includes(query)) return false;
+      const dateKey = displayDateKey(row.order_time_display);
+      return (!fromKey || (dateKey && dateKey >= fromKey)) && (!untilKey || (dateKey && dateKey <= untilKey));
+    }).sort((a: any, b: any) => orderTimeSortKey(b.order_time_display) - orderTimeSortKey(a.order_time_display)) as unknown as CanonicalOrder[];
+  return { orders, itemError: null, sourceTable: "🗝️HERMES_ARCHIVE", fetchedAt: new Date().toISOString(), since };
 }
 export async function readTelegramDeliveryOrders(search = "", room: "queue" | "today" | "yesterday_after_14" | "sent" = "queue") {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const sourceTable = "vw_st_telegram_manual_room_v1";
-  const { data, error } = await api.from(sourceTable).select("*").limit(1000);
+
+  // Telegram has one room with two views: live queue from PIONEER and
+  // the final sent archive from GENESIS. ANDROMEDA is retired.
+  const sourceTable = room === "sent" ? "🌟GENESIS_xXx_HISTORY" : "🛰️PIONEER_xXx_CAPSULE";
+  const columns = room === "sent" ? GENESIS_HISTORY_COLUMNS : TELEGRAM_WEB_ORDER_COLUMNS;
+  let request = api
+    .from(sourceTable)
+    .select(columns)
+    .order("order_time_display", { ascending: false })
+    .limit(ORDER_OPERATIONAL_LIMIT);
+  const { data, error } = await request;
   if (error) fail(error);
   const query = search.trim().toLowerCase();
-  const orders = (data ?? []).filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query)).sort((a: any, b: any) => new Date(b.source_time ?? b.order_time ?? 0).getTime() - new Date(a.source_time ?? a.order_time ?? 0).getTime());
-  return { orders, itemError: null, sourceTable, fetchedAt: new Date().toISOString(), room };
+  const orders = (data ?? []).filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query));
+  return { orders, sourceTable, fetchedAt: new Date().toISOString(), room };
 }
 
-export async function readStAlertRoom(search = "") {
+export async function readBbAlertRoom(search = "") {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const { data, error } = await api.from("vw_st_order_alert_room_v1").select("*").limit(2000);
+  const { data, error } = await api.from("🔸 PARADOX_xXx_EXCHANGE").select("*").order("order_time_display", { ascending: false }).limit(2000);
   if (error) fail(error);
   const query = search.trim().toLowerCase();
   return (data ?? [])
     .filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query))
-    .sort((a: any, b: any) => String(b.order_time_display ?? "").localeCompare(String(a.order_time_display ?? "")));
+    .sort((a: any, b: any) => displayOrderSortKey(b.order_time_display) - displayOrderSortKey(a.order_time_display));
 }
-export type StockProduct = { id: number; sku: string; label: string; thName: string; emoji: string; price: number | null; stockQty: number; stockStatus: string | null; outOfStockJoke: string | null; stockNotice: string | null; aliases: string; inventoryId: number | string | null };
-export type ProductMapAlias = { id: string; alias: string; canonicalSku: string; canonicalLabel: string; isActive: boolean };
 
-export async function readProductMapAliases(): Promise<ProductMapAlias[]> {
+export async function readBlackboxRoom(search = "") {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const [{ data: rows, error }, { data: products, error: productError }] = await Promise.all([
-    api.from("product_map_master").select("*").order("sku"),
-    api.from("product_master").select("sku,label_display,display_for_packer,name_standard,th_name,product_name,emoji,unit_price").order("sku")
-  ]);
+  const { data, error } = await api.from("💀THANATOS_xXx_DEATH_NOTE").select("*").order("order_time_display", { ascending: false }).limit(2000);
   if (error) fail(error);
-  if (productError) fail(productError);
-  const masters = new Map((products ?? []).map((p: any) => [String(p.sku ?? '').trim().toLowerCase(), p]));
-  const output: ProductMapAlias[] = [];
-  for (const row of rows ?? []) {
-    const sku = String(row.sku ?? '').trim();
-    const master = masters.get(sku.toLowerCase()) ?? {};
-    const aliases = [row.alias, row.alias_text].flatMap((v: any) => String(v ?? '').split(/[,\n|]+/)).map((v: string) => v.trim()).filter(Boolean);
-    for (const alias of Array.from(new Set(aliases))) output.push({ id: String(row.id ?? sku + ':' + alias), alias, canonicalSku: sku, canonicalLabel: master.label_display ?? master.display_for_packer ?? master.name_standard ?? master.th_name ?? master.product_name ?? sku, isActive: row.is_active !== false });
+  const query = search.trim().toLowerCase();
+  return (data ?? []).filter((row: any) => !query || JSON.stringify(row).toLowerCase().includes(query));
+}
+
+export async function updateBbOrder(upsertKey: string | number, patch: Record<string, unknown>) {
+  const api = getSupabase();
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
+  const { data, error } = await api.from(defaultOrderView("BB")).update(patch).eq("upsert_key", String(upsertKey)).select("upsert_key");
+  if (error) fail(error);
+  if (!data?.length) fail({ message: `ไม่พบออเดอร์ upsert_key=${upsertKey} หรือสิทธิ์ RLS ไม่อนุญาตให้อัปเดต` });
+  if (data.length > 1) fail({ message: `พบออเดอร์ซ้ำ ${data.length} แถวด้วย upsert_key=${upsertKey}` });
+  return data[0];
+}
+export async function updateBbOrderByKey(upsertKey: string, patch: Record<string, unknown>, sourceTable: "🗝️HERMES_ARCHIVE" | "🌀SINGULARITY_xXx_EXCHANGE" = "🗝️HERMES_ARCHIVE") {
+  const api = getSupabase();
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
+  const { data, error } = await api.from(sourceTable).update(patch).eq("upsert_key", upsertKey).select("upsert_key");
+  if (error) fail(error);
+  if (!data?.length) fail({ message: `ไม่พบออเดอร์ upsert_key=${upsertKey} หรือสิทธิ์ RLS ไม่อนุญาตให้อัปเดต` });
+  if (data.length > 1) fail({ message: `พบ upsert_key ซ้ำ ${data.length} แถว ต้องตรวจข้อมูลก่อนแก้ไข` });
+  return data[0];
+}
+
+async function withSentWriteTimeout<T>(request: PromiseLike<T>, timeoutMs = 15_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Supabase ไม่ตอบใน 15 วินาที — สถานะอาจเขียนแล้ว ให้รีเฟรชเช็กก่อนกดซ้ำ")), timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve(request), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return output;
 }
 
-export async function readProductMapCatalog() {
+export async function markBbOrderSentByKey(upsertKey: string, sourceTable: "🗝️HERMES_ARCHIVE" | "🌀SINGULARITY_xXx_EXCHANGE") {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const { data, error } = await api.from("product_master").select("sku,label_display,display_for_packer,name_standard,th_name,product_name,emoji,unit_price").order("sku");
+  const patch = { delivery_status: "SENT", sent_at: new Date().toISOString() };
+  const request = api.from(sourceTable)
+    .update(patch)
+    .eq("upsert_key", upsertKey)
+    .select("upsert_key,delivery_status,sent_at");
+  const { data, error } = await withSentWriteTimeout(request);
   if (error) fail(error);
-  return (data ?? []).map((p: any) => ({ sku: String(p.sku ?? ''), label: p.label_display ?? p.display_for_packer ?? p.name_standard ?? p.th_name ?? p.product_name ?? p.sku ?? '', emoji: p.emoji ?? '📦', price: num(p.unit_price) }));
+  if (!data?.length) fail({ message: `เขียน 🔥SENT ไม่สำเร็จ: ไม่พบ ${upsertKey} ใน ${sourceTable} หรือสิทธิ์ RLS ไม่อนุญาต` });
+  if (data.length > 1) fail({ message: `เขียน 🔥SENT ไม่สำเร็จ: พบ ${data.length} แถวสำหรับ ${upsertKey}` });
+  const row = data[0] as Record<string, unknown>;
+  const deliveryStatus = String(row.delivery_status ?? "").trim().toLowerCase().replace(/^🔥\s*/, "");
+  if (deliveryStatus !== "sent" || !String(row.sent_at ?? "").trim()) {
+    fail({ message: `อัปเดต ${upsertKey} แล้วแต่ตรวจค่ากลับไม่ครบ — ไม่ซ่อนรายการจากคิว` });
+  }
+  return row;
 }
 
-export async function saveProductMapAlias(input: { alias: string; canonicalSku: string }) {
-  const api = getSupabase();
-  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
-  const alias = input.alias.trim(); const sku = input.canonicalSku.trim();
-  if (!alias || !sku) throw new Error('ต้องมี Alias และ SKU');
-  const { data: existing, error: readError } = await api.from('product_map_master').select('*').eq('sku', sku).maybeSingle();
-  if (readError) fail(readError);
-  const old = [existing?.alias, existing?.alias_text].flatMap((v: any) => String(v ?? '').split(/[,\n|]+/)).map((v: string) => v.trim()).filter(Boolean);
-  const aliases = Array.from(new Set([...old, alias]));
-  const payload: any = { sku, alias: aliases.join(', '), alias_text: aliases.join(', '), alias_norm: aliases.map(v => v.toLowerCase().replace(/\s+/g, '')).join(', ') };
-  const result = existing?.id != null ? await api.from('product_map_master').update(payload).eq('id', existing.id) : await api.from('product_map_master').insert(payload);
-  if (result.error) fail(result.error);
-  return { sku, alias, aliases };
-}
+export type StockProduct = { id: number; sku: string; label: string; thName: string; emoji: string; price: number | null; stockQty: number; stockStatus: string | null; outOfStockJoke: string | null; stockNotice: string | null; inventoryId: number | string | null };
 
 export async function readStockProducts(): Promise<StockProduct[]> {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
   // Stock Room is intentionally a Product Master room for now.
   // It does not read inventory and it never deducts stock from orders.
-  const { data: products, error } = await api.from("product_master").select("*").order("master_sku");
+  const { data: products, error } = await api.from("🛒product_master")
+    .select("id,master_sku,th_name,name_standard,master_display_for_packer,display_for_packer,emoji,unit_price,stock_qty,stock_status,stock_notice")
+    .order("master_sku");
   if (error) fail(error);
   return (products ?? []).map((p: any) => {
     const sku = String(p.master_sku ?? p.sku ?? "").trim();
@@ -266,7 +472,6 @@ export async function readStockProducts(): Promise<StockProduct[]> {
       stockStatus: p.stock_status ?? (stockQty > 0 ? "IN_STOCK" : "OUT_OF_STOCK"),
       outOfStockJoke: null,
       stockNotice: p.stock_notice ?? null,
-      aliases: String(p.alias ?? ""),
       inventoryId: null,
     };
   });
@@ -277,7 +482,7 @@ export async function updateInventoryStock(input: { productId: number; sku: stri
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
   const stockQty = Math.max(0, Math.trunc(Number(input.stockQty) || 0));
   const stockStatus = input.stockStatus ?? (stockQty > 0 ? "IN_STOCK" : "OUT_OF_STOCK");
-  const { error } = await api.from("product_master").update({ stock_qty: stockQty, stock_status: stockStatus, updated_at: new Date().toISOString() }).eq("id", input.productId);
+  const { error } = await api.from("🛒product_master").update({ stock_qty: stockQty, stock_status: stockStatus, updated_at: new Date().toISOString() }).eq("id", input.productId);
   if (error) fail(error);
   return { ...input, stockQty, stockStatus };
 }
@@ -290,132 +495,303 @@ export async function setInventoryAvailability(input: { productId: number; sku: 
   });
 }
 
-export async function readDailyOrders(date: string, search = "") { const start = new Date(`${date}T00:00:00+07:00`).toISOString(); const result = await readCanonicalOrders(search, start); const orders = result.orders.filter((o: any) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(o.order_time ?? o.created_at ?? "")) === date); return { date, orders, total: orders.length }; }
-async function readChatRows() {
+const GENESIS_HISTORY_COLUMNS = [
+  "upsert_key", "order_time_display", "order_number", "order_number_display",
+  "page_id", "page_name", "threadId", "customer_name", "facebook_name",
+  "phone", "extracted_phone", "full_address", "final_address_for_bill",
+  "address_display_packer", "addressclean", "province", "zipcode", "sku",
+  "order_fibo_product", "for_packer_st_display", "manus_for_packer",
+  "google_for_packer", "packer_tag_display", "packer_obj", "telegram_product_display",
+  "telegram_message", "balloonnotice", "original",
+  "cod_amount", "expected_cod", "shipping_carrier", "source_table", "telegram_status",
+  "telegram_sent", "sent_at", "telegram_sent_at"
+].join(",");
+
+export async function readGenesisOrderHistory(date: string) {
   const api = getSupabase();
   if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return { orders: [], total: 0, sourceView: "🌟GENESIS_xXx_HISTORY", fetchedAt: new Date().toISOString() };
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const years = new Set([String(year), String(year + 543)]);
+  if (year - 1957 >= 0 && year - 1957 <= 99) years.add(String(year - 1957).padStart(2, "0"));
+  const days = new Set([String(day).padStart(2, "0"), String(day)]);
+  const months = new Set([String(month).padStart(2, "0"), String(month)]);
+  const prefixes = new Set<string>([date]);
+  Array.from(days).forEach((d) => Array.from(months).forEach((m) => Array.from(years).forEach((y) => prefixes.add(`${d}/${m}/${y}`))));
+  const dateFilter = Array.from(prefixes).map((prefix) => `order_time_display.ilike.${prefix}%`).join(",");
+
+  const { data, error } = await api.from("🌟GENESIS_xXx_HISTORY")
+    .select(GENESIS_HISTORY_COLUMNS)
+    .or(dateFilter)
+    .order("order_time_display", { ascending: false })
+    .limit(1000);
+  if (error) fail(error);
+
+  const orders = (data ?? []).sort((a: any, b: any) => displayOrderSortKey(b.order_time_display) - displayOrderSortKey(a.order_time_display));
+
+  return { orders, total: orders.length, sourceView: "🌟GENESIS_xXx_HISTORY", fetchedAt: new Date().toISOString() };
+}
+export async function readTelegramSentHistory(search = "") {
+  const api = getSupabase();
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key" });
+
+  const { data, error } = await api.from("🌟GENESIS_xXx_HISTORY")
+    .select(GENESIS_HISTORY_COLUMNS)
+    .order("order_time_display", { ascending: false })
+    .limit(1000);
+  if (error) fail(error);
+
+  const needle = search.trim().toLocaleLowerCase();
+  const orders = (data ?? []).map((row: any) => ({
+    ...row,
+    source_view: "🌟GENESIS_xXx_HISTORY",
+  })).filter((row: Record<string, any>) => !needle || [
+    row.upsert_key, row.order_number, row.order_number_display, row.customer_name,
+    row.facebook_name, row.phone, row.extracted_phone,
+  ].some((value) => asText(value).toLocaleLowerCase().includes(needle)));
+
+  return { orders, total: orders.length, sourceView: "🌟GENESIS_xXx_HISTORY", fetchedAt: new Date().toISOString() };
+}
+export async function readDailyParcels(date: string, search = "") {
+  const api = getSupabase("parcel");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Tracking & Messenger: ไปที่ /secret-gallery แล้วบันทึก URL กับ Anon/Publishable Key" });
+  const parsedDate = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parsedDate) return { parcels: [], total: 0, sourceTable: "parcels", fetchedAt: new Date().toISOString() };
+  const todayKey = isoDateKey(new Date().toISOString());
+  const earliestKey = isoDateKey(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
+  if (date < earliestKey || date > todayKey) return { parcels: [], total: 0, sourceTable: "parcels", fetchedAt: new Date().toISOString() };
+  const [, year, month, day] = parsedDate;
+  const yearNumber = Number(year);
+  const thaiYearShort = String((yearNumber - 1957) % 100).padStart(2, "0");
+  const thaiYear = String(yearNumber + 543);
+  const prefixes = Array.from(new Set([
+    `${year}-${month}-${day}`,
+    `${day}/${month}/${thaiYearShort}`,
+    `${Number(day)}/${Number(month)}/${thaiYearShort}`,
+    `${day}/${month}/${year}`,
+    `${Number(day)}/${Number(month)}/${year}`,
+    `${day}/${month}/${thaiYear}`,
+    `${Number(day)}/${Number(month)}/${thaiYear}`,
+  ]));
+  const dateFilter = prefixes.map(prefix => `pickup_date.ilike.${prefix}%`).join(",");
+  const { data, error } = await api.from("parcels")
+    .select("id,pickup_date,tracking_number,consignee,phone_number,address,cod_amount,order_phone,order_number,delivery_status,sent_at")
+    .or(dateFilter)
+    .order("pickup_date", { ascending: false })
+    .limit(2000);
+  if (error) fail(error);
+  const query = search.trim().toLowerCase();
+  const toDateKey = (value: unknown) => {
+    const raw = String(value ?? "").trim();
+    const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+    const thai = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+    if (thai) {
+      let year = Number(thai[3]);
+      if (year < 100) year += 1957;
+      else if (year > 2400) year -= 543;
+      return `${year}-${thai[2].padStart(2, "0")}-${thai[1].padStart(2, "0")}`;
+    }
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? "" : isoDateKey(parsed.toISOString());
+  };
+  const parcels = (data ?? []).filter((row: any) => {
+    if (toDateKey(row.pickup_date) !== date) return false;
+    return !query || JSON.stringify(row).toLowerCase().includes(query);
+  });
+  return { parcels, total: parcels.length, sourceTable: "parcels", fetchedAt: new Date().toISOString() };
+}
+async function readChatRows() {
+  const api = getSupabase("chat");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Tracking & Messenger: ไปที่ /secret-gallery แล้วกรอก URL และ Anon Key" });
   // Read the newest window first. Ascending + limit would permanently return
   // the oldest rows once a chat table grows beyond the limit.
   const cutoff = chatHistoryCutoff();
-  const customerResult = await api.from("chat_customer_messages").select("*").gte("occurred_at", cutoff).order("occurred_at", { ascending: false }).limit(10000);
+  const [customerResult, pageResult] = await Promise.all([
+    api.from("chat_customer_messages").select("*").gte("occurred_at", cutoff).order("occurred_at", { ascending: false }).limit(10000),
+    api.from("chat_page_messages").select("*").gte("occurred_at", cutoff).order("occurred_at", { ascending: false }).limit(10000),
+  ]);
   if (customerResult.error) fail(customerResult.error);
-  const pageResult = await api.from("chat_page_messages").select("*").gte("occurred_at", cutoff).order("occurred_at", { ascending: false }).limit(10000);
   const customers = customerResult.data ?? [];
   const pages = pageResult.error ? [] : (pageResult.data ?? []);
   const rows = [
-    ...customers.map((r: any) => ({ ...r, _speaker: r.speaker_type || r.speaker || "customer", _side: r.side || "left", _name: r.customer_name || r.sender_name, _text: asText(r.message_text ?? r.message_raw), _thread: r.thread_id || r.conversation_key || r.conversation_id, _occurred: r.occurred_at || r.time || r.created_at, _hasAttachment: Boolean(r.has_attachment || r.attachments?.length || r.attachments_json?.length) })),
-    ...pages.map((r: any) => ({ ...r, _speaker: r.speaker_type || r.speaker || "page", _side: r.side || "right", _name: r.page_sender_name || r.sender_name, _text: asText(r.message_text ?? r.message_raw), _thread: r.thread_id || r.conversation_key || r.conversation_id, _occurred: r.occurred_at || r.time || r.created_at, _hasAttachment: Boolean(r.has_attachment || r.attachments?.length || r.attachments_json?.length) })),
+    ...customers.map((r: any) => ({ ...r, _speaker: r.speaker_type || r.speaker || "customer", _side: r.side || "left", _name: r.customer_name || r.sender_name, _text: asText(r.message_text ?? r.message_raw), _thread: r.thread_id || r.conversation_key || r.conversation_id, _occurred: r.occurred_at || r.time || r.created_at, _hasAttachment: hasChatAttachment(r) })),
+    ...pages.map((r: any) => ({ ...r, _speaker: r.speaker_type || r.speaker || "page", _side: r.side || "right", _name: r.page_sender_name || r.sender_name, _text: asText(r.message_text ?? r.message_raw), _thread: r.thread_id || r.conversation_key || r.conversation_id, _occurred: r.occurred_at || r.time || r.created_at, _hasAttachment: hasChatAttachment(r) })),
   ];
   return rows.sort((a, b) => new Date(a._occurred || a.occurred_at || a.synced_at || 0).getTime() - new Date(b._occurred || b.occurred_at || b.synced_at || 0).getTime());
 }
-export async function readChatThreads() { const rows = await readChatRows(); const map = new Map<string, any>(); for (const row of rows) { const key = `${row.page_id ?? ""}:${row._thread ?? ""}`; const current = map.get(key) ?? { key, pageId: row.page_id, threadId: row._thread, customerId: row.customer_id, pageName: row.page_name || "ไม่ระบุเพจ", customerName: row.customer_name || row._name || "ลูกค้า", latestAt: row._occurred || row.occurred_at || row.synced_at, latestOrderNumber: null, preview: row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : ""), orderCount: 0, unread: false, messageCount: 0, orders: [], chatTimeline: [] as string[] }; current.latestAt = row._occurred || row.occurred_at || row.synced_at || current.latestAt; current.preview = row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : current.preview); current.customerId ||= row.customer_id; current.customerName = current.customerName === "ลูกค้า" ? row.customer_name || row._name || current.customerName : current.customerName; current.messageCount += 1; current.chatTimeline.push(`${row._speaker === "page" ? "[เพจ]" : "[ลูกค้า]"} ${row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : "")}`); map.set(key, current); } try { const orders = await readCanonicalOrders(); for (const order of orders.orders) { const key = `${order.page_id ?? ""}:${order.thread_id || order.threadId || ""}`; const current = map.get(key); if (current) { current.orders.push(order); current.orderCount += 1; current.latestOrderNumber = order.order_number; } } } catch { /* ห้องแชทต้องไม่หายเพราะ View ออเดอร์อ่านไม่ได้ */ } return Array.from(map.values()).sort((a, b) => new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime()); }
-export async function readChatMessages(pageId: string, threadId: string) { const rows = await readChatRows(); return rows.filter(row => String(row.page_id) === String(pageId) && String(row._thread) === String(threadId)).map((row: any) => ({ id: row.id, text: row._text || (row._hasAttachment ? "ส่งรูปภาพ" : ""), message_text: row._text, direction: row._speaker === "page" ? "outbound" : "inbound", senderType: row._speaker, senderName: row._name, side: row._side, occurredAt: row._occurred || row.occurred_at || row.synced_at, attachmentsJson: JSON.stringify(row.attachments_json || []), imageUrls: row.image_urls || [] })); }
-export async function readDailyChatSummary(date: string) {
-  const rows = await readChatRows(); let orders: any[] = [];
-  try { const orderResult = await readCanonicalOrders("", new Date(date + "T00:00:00+07:00").toISOString()); orders = orderResult.orders; } catch { /* keep chat summary usable when canonical view is unavailable */ }
-  const ordersByRoom = new Map(orders.map((order: any) => [String(order.page_id ?? "") + ":" + String(order.thread_id ?? ""), order]));
-  const dayRows = rows.filter(row => { const value = row._occurred || row.occurred_at || row.synced_at; return value && new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(value)) === date; });
-  const map = new Map<string, any>();
-  for (const row of dayRows) {
-    const key = String(row.page_id ?? "") + ":" + String(row._thread ?? ""); const current = map.get(key) ?? { customerName: row.customer_name || row._name || "ไม่ระบุชื่อ", customerId: row.customer_id || "", pageName: row.page_name || "ไม่ระบุเพจ", pageId: row.page_id, threadId: row._thread, customerMessages: 0, pageMessages: 0, orderSignals: 0, signalScore: 0, signalReasons: [], coreSignalCount: 0, flowSignalCount: 0, qualifiedSignal: false, snippets: [], latestAt: row._occurred || row.occurred_at || row.synced_at, customerText: [], pageText: [], latestCod: null };
-    const text = row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : ""); if (row._speaker === "customer") { current.customerMessages += 1; current.customerText.push(text); } else { current.pageMessages += 1; current.pageText.push(text); }
-    current.latestAt = row._occurred || row.occurred_at || row.synced_at || current.latestAt; const cod = parseCod(text); if (cod != null) current.latestCod = cod;
-    const signal = scoreDailyOrderSignal(text, cod); if (signal.qualified) current.orderSignals += 1; current.signalScore += signal.score; current.coreSignalCount += signal.coreCount; current.flowSignalCount += signal.flowCount; current.qualifiedSignal ||= signal.qualified; current.signalReasons.push(...signal.reasons);
-    if (text.trim()) current.snippets.push(text.slice(0, 300)); map.set(key, current);
-  }
-  const threads = Array.from(map.values()).map(row => { const order = ordersByRoom.get(String(row.pageId ?? "") + ":" + String(row.threadId ?? "")) as any; return { ...row, sourceText: order?.source_text || order?.source_payload?.source_text || "", productDisplay: order?.display_for_packer || order?.items_text || "", snippets: row.snippets.slice(-8), signalReasons: Array.from(new Set(row.signalReasons)).slice(-12), orderSignalsText: row.latestCod != null ? "COD ล่าสุด " + row.latestCod.toLocaleString("th-TH") + " บาท" : "ไม่พบ COD" }; });
-  return { date, threads, totalMessages: dayRows.length, customerMessages: dayRows.filter(r => r._speaker === "customer").length, pageMessages: dayRows.filter(r => r._speaker === "page").length, threadCount: threads.length, orderSignalThreads: threads.filter(r => r.orderSignals > 0).length };
+function isLikelyCodOrder(textValue: string) {
+  const value = textValue.replace(/\s+/g, " ").trim();
+  if (!value || /(?:cod|เก็บเงินปลายทาง).{0,18}(?:ไหม|มั้ย|หรือเปล่า)|(?:รับ|มีบริการ).{0,18}cod/i.test(value)) return false;
+  const hasAmount = /(?:\bcod\b|ยอด\s*(?:รวม\s*)?(?:cod|เก็บเงินปลายทาง)|ยอดเก็บเงินปลายทาง)\s*[:：=()]?\s*[0-9๐-๙]{2,6}/i.test(value);
+  if (!hasAmount) return false;
+  const hasPhone = /(?:เบอร์|โทร(?:ศัพท์)?|📱)[^0-9๐-๙]{0,16}(?:0[0-9๐-๙]{9})/i.test(value) || /(?:^|[^0-9๐-๙])0[0-9๐-๙]{9}(?:$|[^0-9๐-๙])/i.test(value);
+  const hasAddress = /(?:ที่อยู่|ต\.|ตำบล|อ\.|อำเภอ|จ\.|จังหวัด|รหัสไปรษณีย์)/i.test(value);
+  const hasProduct = /(?:รายการสินค้า|สินค้า|คอต|x\s*[0-9๐-๙]+)/i.test(value);
+  const hasOrderSignature = /#[A-Z0-9_]*(?:ORDER|ORDERS)(?:✅)?/i.test(value) || /ปิดยอดสำเร็จ|สรุปรายการสั่งซื้อ|เลขที่ออเดอร์|เลขพัสดุจัดส่ง|ยอดเก็บเงินปลายทาง/i.test(value);
+  return hasOrderSignature || (hasPhone && (hasAddress || hasProduct));
 }
-export type AlienReviewItem = Record<string, any> & { audit_status: string; raw_display: string; mapped_display: string; customer_history: string[] };
-export async function readAlienReview(search = ''): Promise<AlienReviewItem[]> {
-  const api = getSupabase();
-  if (!api) fail({ message: 'ยังไม่ได้เชื่อม Supabase: ไปที่ /connect แล้วกรอก URL และ Anon Key' });
-  const camp = getActiveCamp();
-  const orderTable = camp === 'ST' ? 'st_orders' : camp === 'SB' ? 'sb_orders' : 'bb_orders';
-  const inspectorView = camp === 'ST' ? 'vw_st_alien_master_center' : 'vw_product_alien_inspector';
-  const [ordersResult, masterResult, aliasResult, inventoryResult, inspectorResult] = await Promise.all([
-    api.from(orderTable).select('*').order('updated_at', { ascending: false }).limit(1000),
-    api.from('product_master').select('*').limit(1500),
-    api.from('product_map_master').select('*').limit(3000),
-    api.from('inventory').select('*'),
-    api.from(inspectorView).select('*').limit(2000),
-  ]);
-  if (ordersResult.error) fail(ordersResult.error);
-  if (masterResult.error) fail(masterResult.error);
-  if (aliasResult.error) fail(aliasResult.error);
 
-  const masters = masterResult.data ?? [];
-  const bySku = new Map<string, any>(masters
-    .map((master: any): [string, any] => [String(master.sku ?? master.master_sku ?? master.product_sku ?? master.product_code ?? master.code ?? '').trim().toLowerCase(), master])
-    .filter(([key]) => Boolean(key)));
-  const normalize = (value: any) => String(value ?? '').toLowerCase().normalize('NFKC').replace(/[\s_\-.,:;|()[\]{}]+/g, '').trim();
-  const aliasToSku = new Map<string, string>();
-  for (const row of aliasResult.data ?? []) {
-    const sku = String(row.sku ?? row.master_sku ?? row.product_sku ?? row.product_code ?? row.code ?? '').trim();
-    if (!sku) continue;
-    for (const value of [row.alias, row.alias_text, row.alias_norm].flatMap((v: any) => String(v ?? '').split(/[,\n|]+/)).map((v: string) => v.trim()).filter(Boolean)) {
-      const key = normalize(value);
-      if (key) aliasToSku.set(key, sku);
-    }
-  }
-
-  const query = search.trim().toLowerCase();
-  const inspectorByKey = new Map<string, any>();
-  for (const item of inspectorResult.data ?? []) {
-    const key = String(item.upsert_key ?? item.order_number ?? '').trim();
-    if (key) inspectorByKey.set(key, item);
-  }
-  return (ordersResult.data ?? []).map((sourceOrder: any) => {
-    const order = { ...sourceOrder, ...(inspectorByKey.get(String(sourceOrder.upsert_key ?? sourceOrder.order_number ?? '').trim()) ?? {}) };
-    const history = [
-      ...(Array.isArray(order.normalized_chat_timeline) ? order.normalized_chat_timeline : []),
-      ...(Array.isArray(order.chat_timeline) ? order.chat_timeline : []),
-    ].map((value: any) => String(value)).filter(Boolean);
-    const rawCandidates = [
-      order.raw_text,
-      order.raw_item_text,
-      order.raw_product_text,
-      order.extracted_product_raw,
-      order.product_lines,
-      order.sniper_x_text_clean,
-    ].map((value: any) => String(value ?? '').trim()).filter(Boolean);
-    const raw = rawCandidates.find((value: string) => !/CHECK_SKU|ระบุสินค้าไม่ได้/i.test(value)) || rawCandidates[0] || '';
-    const evidenceText = [raw, ...history].join('\n');
-    const rawNormalized = normalize(evidenceText);
-    const aliasSku = Array.from(aliasToSku.entries()).find(([alias]) => alias.length >= 3 && rawNormalized.includes(alias))?.[1] ?? '';
-    const sourceSku = String(order.sku ?? order.extracted_sku ?? '').trim();
-    const resolvedSku = sourceSku || aliasSku;
-    const master: any = bySku.get(resolvedSku.toLowerCase());
-    const stock: any = (inventoryResult.data ?? []).find((item: any) => item.product_id === master?.id || String(item.sku ?? '').toLowerCase() === resolvedSku.toLowerCase());
-    const masterDisplay = String(master?.master_display_for_packer ?? '').trim();
-    const hasRawEvidence = Boolean(raw && !/CHECK_SKU|ระบุสินค้าไม่ได้/i.test(raw));
-    const mappingStatus = String(order.mapping_status ?? order.match_status ?? '').toUpperCase();
-    const matched = Boolean(hasRawEvidence && master && masterDisplay && (mappingStatus === 'MATCHED' || mappingStatus === 'RESOLVED' || Boolean(aliasSku)));
-    const audit_status = matched ? 'MATCHED' : hasRawEvidence ? 'REVIEW' : 'RAW_MISSING';
-    const customerHistory = Array.from(new Set(history));
-    const row = {
-      ...order,
-      store_code: order.store_code ?? camp,
-      sku: resolvedSku || null,
-      raw_display: raw || 'ไม่มีคำดิบ',
-      mapped_display: matched ? masterDisplay : '',
-      master_display_for_packer: masterDisplay || null,
-      audit_status,
-      mapping_status: mappingStatus || 'REVIEW',
-      alias_match: Boolean(aliasSku),
-      alias_match_sku: aliasSku || null,
-      alias_match_method: aliasSku ? 'product_map_master' : null,
-      customer_history: customerHistory,
-      customer_history_count: order.chat_timeline_count ?? customerHistory.length,
-      product_source: order.product_source ?? null,
-      product_evidence: order.product_evidence ?? null,
-      address_completeness: order.address_completeness ?? null,
-      stock_status: stock?.stock_status ?? 'STOCK_UNKNOWN',
-      stock_qty: stock?.stock_qty ?? stock?.quantity ?? null,
-      available_qty: stock?.stock_qty ?? stock?.quantity ?? null,
-      unit_price: order.unit_price ?? master?.unit_price ?? null,
-      price_mismatch: false,
+export async function readChatThreads() {
+  const rows = await readChatRows();
+  const map = new Map<string, any>();
+  const todayBangkok = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+  for (const row of rows) {
+    const pageId = String(row.page_id ?? row.pageId ?? "").trim();
+    const threadId = String(row._thread ?? row.threadId ?? row.conversation_id ?? "").trim();
+    const key = `${pageId}:${threadId}`;
+    const current = map.get(key) ?? {
+      key, pageId, threadId, portalKey: row.portal_key || row.portalKey || null, chatLinkKey: row.chat_link_key || row.chatLinkKey || null,
+      customerId: row.customer_id || row.recipient_id || row.customerId || row.sender_id, pageName: row.page_name || "ไม่ระบุเพจ",
+      customerName: row.customer_name || row._name || "ลูกค้า", latestAt: row._occurred || row.occurred_at || row.synced_at,
+      preview: row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : ""), unread: false, messageCount: 0, chatTimeline: [],
+      allTexts: [], todayTexts: [], codSignalCount: 0, todayCodSignalCount: 0, codTodayActive: false,
     };
-    return row;
-  }).filter((row: AlienReviewItem) => !query || JSON.stringify(row).toLowerCase().includes(query));
+    current.latestAt = row._occurred || row.occurred_at || row.synced_at || current.latestAt;
+    current.preview = row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : current.preview);
+    current.customerId ||= row.customer_id || row.recipient_id || row.customerId || row.sender_id;
+    current.portalKey ||= row.portal_key || row.portalKey || null;
+    current.chatLinkKey ||= row.chat_link_key || row.chatLinkKey || null;
+    current.customerName = current.customerName === "ลูกค้า" ? row.customer_name || row._name || current.customerName : current.customerName;
+    const rowText = String(row._text ?? "");
+    current.allTexts.push(rowText);
+    const occurred = new Date(String(row._occurred || row.occurred_at || row.synced_at || ""));
+    if (!Number.isNaN(occurred.getTime()) && new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(occurred) === todayBangkok) current.todayTexts.push(rowText);
+    current.messageCount += 1;
+    current.chatTimeline.push(`${row._speaker === "page" ? "[เพจ]" : "[ลูกค้า]"} ${row._text || (row._hasAttachment ? "[ไฟล์แนบ]" : "")}`);
+    // Tracking fields are supplied directly on either room-side table; keep the newest non-empty value.
+    for (const field of ["tracking_number", "order_number", "order_number_display", "shipping_carrier", "facebook_tracking_message", "drakside_tracking_message"]) {
+      if (row[field] != null && String(row[field]).trim()) current[field] = row[field];
+    }
+
+    map.set(key, current);
+  }
+  for (const thread of map.values()) {
+    thread.codSignalCount = isLikelyCodOrder(thread.allTexts.join("\n")) ? 1 : 0;
+    thread.todayCodSignalCount = isLikelyCodOrder(thread.todayTexts.join("\n")) ? 1 : 0;
+    thread.codTodayActive = thread.todayCodSignalCount > 0;
+    delete thread.allTexts;
+    delete thread.todayTexts;
+  }
+  return Array.from(map.values()).sort((a, b) => new Date(b.latestAt || 0).getTime() - new Date(a.latestAt || 0).getTime());
+}
+export async function readChatMessages(pageId: string, threadId: string) { const rows = await readChatRows(); return rows.filter(row => String(row.page_id) === String(pageId) && String(row._thread) === String(threadId)).map((row: any) => ({ id: row.id, text: row._text || (row._hasAttachment ? "ส่งรูปภาพ" : ""), message_text: row._text, direction: row._speaker === "page" ? "outbound" : "inbound", senderType: row._speaker, senderName: row._name, side: row._side, occurredAt: row._occurred || row.occurred_at || row.synced_at, attachmentsJson: chatAttachmentPayload(row), imageUrls: row.image_urls || [] })); }
+export type CloseJobCase = { id: string; page_id: string; page_name: string; conversation_key: string; customer_id: string; customer_name: string; speaker_type: string; occurred_at: string; message_text: string; case_type: string; area: string; branch: string; carrier_employee: string; tracking_number: string; order_number: string };
+export async function readCloseJobCases(limit = 10000): Promise<CloseJobCase[]> {
+  const api = getSupabase("tracking");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Tracking & Messenger: ไปที่ /secret-gallery แล้วบันทึก URL กับ Anon/Publishable Key" });
+  const [casesResult, notesResult] = await Promise.all([
+    api.from("vw_bb_close_job_cases").select("*").order("occurred_at", { ascending: false }).limit(Math.max(1, Math.min(limit, 10000))),
+    api.from("bb_delivery_case_notes").select("case_id,branch,carrier_employee,area"),
+  ]);
+  if (casesResult.error) fail(casesResult.error);
+  if (notesResult.error) fail(notesResult.error);
+  const notes = new Map((notesResult.data ?? []).map((note: any) => [String(note.case_id), note]));
+  return (casesResult.data ?? []).map((row: any) => {
+    const note = notes.get(String(row.id));
+    return {
+      ...row,
+      branch: note ? String(note.branch ?? "") : String(row.branch ?? ""),
+      carrier_employee: note ? String(note.carrier_employee ?? "") : String(row.carrier_employee ?? ""),
+      area: note ? String(note.area ?? "") : String(row.area ?? ""),
+    } as CloseJobCase;
+  });
+}
+export async function saveCloseJobCaseFields(input: { caseId: string; branch: string; carrierEmployee: string; area: string }) {
+  const api = getSupabase("tracking");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Tracking & Messenger: ไปที่ /secret-gallery แล้วบันทึก URL กับ Anon/Publishable Key" });
+  const { error } = await api.from("bb_delivery_case_notes").upsert({
+    case_id: input.caseId,
+    branch: input.branch.trim(),
+    carrier_employee: input.carrierEmployee.trim(),
+    area: input.area.trim(),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "case_id" });
+  if (error) fail(error);
+  return { ok: true };
+}
+export async function readParcelMappingQueue(status: "all" | "sent" = "all", limit = 300) {
+  const api = getSupabase("parcel");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Tracking & Messenger: ไปที่ /secret-gallery แล้วบันทึก URL กับ Anon/Publishable Key" });
+  const safeLimit = Math.max(1, Math.min(limit, 500));
+  const activeData = status === "sent" ? { data: [], error: null } : (await api.from("🦅ROGUE_xXx_SHIPPINGz").select("*").limit(safeLimit));
+  if ("error" in activeData && activeData.error) fail(activeData.error);
+  const sent = status === "all" || status === "sent" ? await api.from("📓DEAD_xXx_NOTE").select("*").limit(safeLimit) : { data: [], error: null };
+  if (sent.error) fail(sent.error);
+  const rows = [...("data" in activeData ? (activeData.data ?? []) : []), ...(sent.data ?? [])];
+  const seen = new Set<string>();
+  return rows.filter((row: any) => {
+    const key = String(row.tracking_number ?? row.order_number ?? row.id ?? "").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, safeLimit);
+}
+
+export async function readParcelByTrackingNumber(trackingNumber: string) {
+  const api = getSupabase("parcel");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อมสาย Parcel: ไปที่ /secret-gallery แล้วบันทึก URL กับ Anon/Publishable Key" });
+  const exact = String(trackingNumber ?? "").trim().toUpperCase();
+  if (!exact) return [];
+  const { data, error } = await api.from("parcels").select("*").eq("tracking_number", exact).limit(20);
+  if (error) fail(error);
+  return data ?? [];
+}
+export type PostalMasterMatch = { district: string | null; amphoe: string | null; province: string | null; zipcode: string | null };
+export async function searchThailandPostalMaster(raw: string): Promise<PostalMasterMatch[]> {
+  const api = getSupabase("tracking");
+  if (!api) fail({ message: "ยังไม่ได้เชื่อม Tracking & Messenger: ไปที่ /secret-gallery แล้วบันทึก URL กับ Anon/Publishable Key" });
+  const input = String(raw ?? "").normalize("NFC").trim().slice(0, 160);
+  if (!input) return [];
+  const postalCode = input.match(/(?:^|\D)(\d{5})(?!\d)/)?.[1] ?? "";
+  const text = input.replace(/[,;|\n]+/g, " ");
+  const stops = "(?:ตำบล|ต\\.|แขวง|อำเภอ|อ\\.|เขต|จังหวัด|จ\\.|รหัสไปรษณีย์|รหัสปณ)";
+  const capture = (labels: string) => {
+    const match = text.match(new RegExp(`(?:${labels})\\s*([^,;|]*?)(?=\\s*${stops}|\\d{5}|$)`, "i"));
+    return String(match?.[1] ?? "").replace(/\d+/g, " ").replace(/[%_*(),]/g, " ").replace(/[^A-Za-z0-9\u0E00-\u0E7F\s.-]/g, " ").replace(/\s+/g, " ").trim();
+  };
+  const district = capture("ตำบล|ต\\.|แขวง");
+  const amphoe = capture("อำเภอ|อ\\.|เขต");
+  let province = capture("จังหวัด|จ\\.");
+  if (/^(กรุงเทพฯ?|กทม)$/i.test(province.replace(/[.\s]/g, ""))) province = "กรุงเทพมหานคร";
+  const cleanSearch = text.replace(/\d+/g, " ").replace(/(?:หมู่บ้าน|หมู่ที่|หมู่|บ้านเลขที่|เลขที่|ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.|แขวง|เขต)/gi, " ").replace(/[^A-Za-z0-9\u0E00-\u0E7F\s]/g, " ").replace(/\s+/g, " ").trim();
+  let data: any[] = [];
+  if (postalCode || district || amphoe || province) {
+    let request = api.from("thailand_address_master").select("district,amphoe,province,zipcode").limit(50);
+    if (postalCode) request = request.eq("zipcode", postalCode);
+    else {
+      if (district) request = request.ilike("district", `%${district}%`);
+      if (amphoe) request = request.ilike("amphoe", `%${amphoe}%`);
+      if (province) request = request.ilike("province", `%${province}%`);
+    }
+    const result = await request.order("province").order("amphoe").order("district");
+    if (result.error) fail(result.error);
+    data = result.data ?? [];
+  } else {
+    // No ต./อ./จ. labels? Search each place word across all three columns,
+    // then keep the rows that match the greatest number of words.
+    const tokens = Array.from(new Set(cleanSearch.split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2))).slice(0, 8);
+    if (!tokens.length) return [];
+    const orFilter = tokens.flatMap((token) => ["district", "amphoe", "province"].map((column) => `${column}.ilike.%${token}%`)).join(",");
+    const result = await api.from("thailand_address_master").select("district,amphoe,province,zipcode").or(orFilter).limit(200);
+    if (result.error) fail(result.error);
+    const rows = result.data ?? [];
+    const score = (row: any) => {
+      const fields = [row.district, row.amphoe, row.province].map((value) => String(value ?? "").toLowerCase());
+      return tokens.filter((token) => fields.some((field) => field.includes(token.toLowerCase()))).length;
+    };
+    const bestScore = rows.reduce((best, row) => Math.max(best, score(row)), 0);
+    data = rows.filter((row) => score(row) === bestScore).sort((a, b) => score(b) - score(a));
+  }
+  const seen = new Set<string>();
+  return data.filter((row: any) => {
+    const key = [row.district, row.amphoe, row.province, row.zipcode].map((part) => String(part ?? "").trim()).join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }) as PostalMasterMatch[];
 }

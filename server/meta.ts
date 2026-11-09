@@ -2,21 +2,35 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type MetaAttachment = { type: string; url?: string; payload?: Record<string, unknown> };
 
-async function pageToken(pageId: string) {
-  const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (supabaseUrl && serviceRoleKey) {
-    const params = new URLSearchParams({ select: "page_id,page_name,access_token", page_id: `eq.${pageId}`, limit: "1" });
-    const response = await fetch(`${supabaseUrl}/rest/v1/page_tokens_vault?${params}`, { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } });
-    if (response.ok) {
-      const rows = await response.json() as Array<Record<string, unknown>>;
-      const row = rows[0];
-      if (row) {
-        const token = row.page_access_token ?? row.access_token ?? row.pageAccessToken ?? row.token;
-        if (typeof token === "string" && token.trim()) return token.trim();
+async function pageToken(pageId: string, portalKey?: string) {
+  // Chat is the primary source. The other lanes are compatibility fallbacks
+  // because existing Render environment groups may keep the vault in Main or Tracking.
+  const lanes = [
+    { name: "CHAT", url: process.env.CHAT_SUPABASE_URL, key: process.env.CHAT_SUPABASE_SERVICE_ROLE_KEY },
+    { name: "MAIN_ORDER", url: process.env.MAIN_ORDER_SUPABASE_URL || process.env.ORDER_SUPABASE_URL, key: process.env.MAIN_ORDER_SUPABASE_SERVICE_ROLE_KEY || process.env.ORDER_SUPABASE_SERVICE_ROLE_KEY },
+    { name: "TRACKING", url: process.env.TRACKING_SUPABASE_URL, key: process.env.TRACKING_SUPABASE_SERVICE_ROLE_KEY },
+    { name: "SUPABASE", url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY },
+  ].filter(candidate => candidate.url?.trim() && candidate.key?.trim());
+  for (const lane of lanes) {
+    const supabaseUrl = lane.url!.trim().replace(/\/$/, "");
+    const serviceRoleKey = lane.key!.trim();
+    const headers = { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` };
+    const queries = [portalKey?.trim(), undefined];
+    for (const candidatePortalKey of queries) {
+      const params = new URLSearchParams({ select: "page_id,page_name,access_token,portal_key", page_id: `eq.${pageId}`, limit: "1" });
+      if (candidatePortalKey) params.set("portal_key", `eq.${candidatePortalKey}`);
+      const response = await fetch(`${supabaseUrl}/rest/v1/page_tokens_vault?${params}`, { headers });
+      if (response.ok) {
+        const rows = await response.json() as Array<Record<string, unknown>>;
+        const row = rows[0];
+        if (row) {
+          const token = row.page_access_token ?? row.access_token ?? row.pageAccessToken ?? row.token;
+          if (typeof token === "string" && token.trim()) return token.trim();
+        }
+        if (!candidatePortalKey) break;
+      } else if (response.status !== 404) {
+        throw new Error(`Supabase ${lane.name} page_tokens_vault returned HTTP ${response.status}`);
       }
-    } else if (response.status !== 404) {
-      throw new Error(`Supabase page_tokens_vault returned HTTP ${response.status}`);
     }
   }
   const configured = process.env.META_PAGES_JSON;
@@ -39,8 +53,8 @@ export function verifyMetaSignature(rawBody: string, signature: string | undefin
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
-export async function sendMetaMessage(input: { pageId: string; recipientId: string; text?: string; imageUrl?: string; stickerId?: string }) {
-  const accessToken = await pageToken(input.pageId);
+export async function sendMetaMessage(input: { pageId: string; portalKey?: string; chatLinkKey?: string; recipientId: string; text?: string; imageUrl?: string; stickerId?: string }) {
+  const accessToken = await pageToken(input.pageId, input.portalKey);
   if (!accessToken) throw new Error(`No Meta page token configured for page ${input.pageId}`);
   const text = input.text?.trim() || "";
   const imageUrl = input.imageUrl?.trim() || "";
